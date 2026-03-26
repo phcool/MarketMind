@@ -1,0 +1,657 @@
+Starting 35 companies with 3 parallel workers
+
+  Queuing [宁德时代(300750)] -> A股重点板块/电力设备与新能源/宁德时代(300750)
+  Queuing [亿纬锂能(300014)] -> A股重点板块/电力设备与新能源/亿纬锂能(300014)
+  Queuing [阳光电源(300274)] -> A股重点板块/电力设备与新能源/阳光电源(300274)
+  Queuing [隆基绿能(601012)] -> A股重点板块/电力设备与新能源/隆基绿能(601012)
+  Queuing [比亚迪(002594)] -> A股重点板块/电力设备与新能源/比亚迪(002594)
+  Queuing [恒瑞医药(600276)] -> A股重点板块/医药生物/恒瑞医药(600276)
+  Queuing [药明康德(603259)] -> A股重点板块/医药生物/药明康德(603259)
+  Queuing [复星医药(600196)] -> A股重点板块/医药生物/复星医药(600196)
+  Queuing [迈瑞医疗(300760)] -> A股重点板块/医药生物/迈瑞医疗(300760)
+  Queuing [云南白药(000538)] -> A股重点板块/医药生物/云南白药(000538)
+  Queuing [招商银行(600036)] -> A股重点板块/银行/招商银行(600036)
+  Queuing [工商银行(601398)] -> A股重点板块/银行/工商银行(601398)
+  Queuing [平安银行(000001)] -> A股重点板块/银行/平安银行(000001)
+  Queuing [建设银行(601939)] -> A股重点板块/银行/建设银行(601939)
+  Queuing [兴业银行(601166)] -> A股重点板块/银行/兴业银行(601166)
+  Queuing [中微公司(688012)] -> A股重点板块/半导体与电子/中微公司(688012)
+  Queuing [北方华创(002371)] -> A股重点板块/半导体与电子/北方华创(002371)
+  Queuing [华虹半导体(688347)] -> A股重点板块/半导体与电子/华虹半导体(688347)
+  Queuing [韦尔股份(603501)] -> A股重点板块/半导体与电子/韦尔股份(603501)
+  Queuing [兆易创新(603986)] -> A股重点板块/半导体与电子/兆易创新(603986)
+  Queuing [贵州茅台(600519)] -> A股重点板块/食品饮料（白酒）/贵州茅台(600519)
+  Queuing [五粮液(000858)] -> A股重点板块/食品饮料（白酒）/五粮液(000858)
+  Queuing [泸州老窖(000568)] -> A股重点板块/食品饮料（白酒）/泸州老窖(000568)
+  Queuing [洋河股份(002646)] -> A股重点板块/食品饮料（白酒）/洋河股份(002646)
+  Queuing [山西汾酒(600809)] -> A股重点板块/食品饮料（白酒）/山西汾酒(600809)
+  Queuing [上汽集团(600104)] -> A股重点板块/汽车/上汽集团(600104)
+  Queuing [长城汽车(601633)] -> A股重点板块/汽车/长城汽车(601633)
+  [宁德时代(300750)] p20  in_range=0  total=0  last_activity=2026-03-13
+  Queuing [吉利汽车(HK00175)] -> A股重点板块/汽车/吉利汽车(00175.HK)
+  [亿纬锂能(300014)] p20  in_range=0  total=0  last_activity=2026-03-13
+  Queuing [广汽集团(601238)] -> A股重点板块/汽车/广汽集团(601238)
+  [阳光电源(300274)] p20  in_range=1  total=20  last_activity=2026-03-13
+  Queuing [江淮汽车(600418)] -> A股重点板块/汽车/江淮汽车(600418)
+  Queuing [中信证券(600030)] -> A股重点板块/非银金融（券商）/中信证券(600030)
+  Queuing [东方财富(300059)] -> A股重点板块/非银金融（券商）/东方财富(300059)
+  Queuing [国泰君安(601211)] -> A股重点板块/非银金融（券商）/国泰君安(601211)
+  Queuing [华泰证券(601688)] -> A股重点板块/非银金融（券商）/华泰证券(601688)
+  Queuing [广发证券(000776)] -> A股重点板块/非银金融（券商）/广发证券(000776)
+  [阳光电源(300274)] p40  in_range=1  total=40  last_activity=2026-03-13
+  [亿纬锂能(300014)] p40  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p40  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p60  in_range=1  total=60  last_activity=2026-03-13
+  [亿纬锂能(300014)] p60  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p65 attempt 1 ProxyError → retry 10s
+  [阳光电源(300274)] p65 attempt 1 ChunkedEncodingError → retry 10s
+  [宁德时代(300750)] p60  in_range=0  total=0  last_activity=2026-02-04
+  [阳光电源(300274)] p80  in_range=1  total=67  last_activity=2026-03-13
+  [亿纬锂能(300014)] p80  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p80  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p100  in_range=1  total=87  last_activity=2026-03-13
+  [亿纬锂能(300014)] p100  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p100  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p120  in_range=1  total=107  last_activity=2026-03-13
+  [亿纬锂能(300014)] p120  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p120  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p140  in_range=1  total=127  last_activity=2026-03-13
+  [亿纬锂能(300014)] p140  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p140  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p160  in_range=1  total=147  last_activity=2026-03-13
+  [亿纬锂能(300014)] p160  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p160  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p180  in_range=1  total=167  last_activity=2026-03-13
+  [亿纬锂能(300014)] p180  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p180  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p200  in_range=1  total=187  last_activity=2026-03-13
+  [亿纬锂能(300014)] p200  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p200  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p220  in_range=1  total=207  last_activity=2026-03-13
+  [亿纬锂能(300014)] p220  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p220  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p240  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p240  in_range=1  total=227  last_activity=2026-03-13
+  [宁德时代(300750)] p240  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p260  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p260  in_range=1  total=247  last_activity=2026-03-13
+  [宁德时代(300750)] p260  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p280  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p280  in_range=1  total=267  last_activity=2026-03-13
+  [宁德时代(300750)] p280  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p300  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p300  in_range=1  total=287  last_activity=2026-03-13
+  [宁德时代(300750)] p300  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p320  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p320  in_range=1  total=307  last_activity=2026-03-13
+  [宁德时代(300750)] p320  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p340  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p340  in_range=1  total=327  last_activity=2026-03-13
+  [宁德时代(300750)] p340  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p360  in_range=1  total=347  last_activity=2026-03-13
+  [亿纬锂能(300014)] p360  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p360  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p380  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p380  in_range=1  total=367  last_activity=2026-03-13
+  [宁德时代(300750)] p380  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p400  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p400  in_range=1  total=387  last_activity=2026-03-13
+  [宁德时代(300750)] p400  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p420  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p420  in_range=1  total=407  last_activity=2026-03-13
+  [宁德时代(300750)] p420  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p440  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p440  in_range=1  total=427  last_activity=2026-03-13
+  [宁德时代(300750)] p440  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p460  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p460  in_range=1  total=447  last_activity=2026-03-13
+  [宁德时代(300750)] p460  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p480  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p480  in_range=1  total=467  last_activity=2026-03-13
+  [宁德时代(300750)] p480  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p500  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p500  in_range=1  total=487  last_activity=2026-03-13
+  [宁德时代(300750)] p500  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p520  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p520  in_range=1  total=507  last_activity=2026-03-13
+  [宁德时代(300750)] p520  in_range=0  total=0  last_activity=2026-03-13
+  [亿纬锂能(300014)] p540  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p540  in_range=1  total=527  last_activity=2026-03-13
+  [宁德时代(300750)] p540  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p560  in_range=1  total=547  last_activity=2026-03-13
+  [亿纬锂能(300014)] p560  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p560  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p580  in_range=1  total=567  last_activity=2026-03-13
+  [亿纬锂能(300014)] p580  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p580  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p600  in_range=1  total=587  last_activity=2026-03-13
+  [亿纬锂能(300014)] p600  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p600  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p620  in_range=1  total=607  last_activity=2026-03-13
+  [阳光电源(300274)] p621 attempt 1 ProxyError → retry 10s
+  [宁德时代(300750)] p605 attempt 1 ProxyError → retry 10s
+  [亿纬锂能(300014)] p616 attempt 1 ReadTimeout → retry 10s
+  [亿纬锂能(300014)] p620  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p620  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p640  in_range=1  total=627  last_activity=2026-03-13
+  [亿纬锂能(300014)] p640  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p640  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p660 attempt 1 ProxyError → retry 10s
+  [宁德时代(300750)] p644 attempt 1 ProxyError → retry 10s
+  [亿纬锂能(300014)] p652 attempt 1 ProxyError → retry 10s
+  [阳光电源(300274)] p660  in_range=80  total=726  last_activity=2025-09-30
+  [亿纬锂能(300014)] p660  in_range=80  total=718  last_activity=2024-07-05
+  [宁德时代(300750)] p660  in_range=80  total=1358  last_activity=2025-03-03
+  [阳光电源(300274)] p680  in_range=1  total=2247  last_activity=2026-03-13
+  [亿纬锂能(300014)] p680  in_range=79  total=2315  last_activity=2024-06-04
+  [宁德时代(300750)] p680  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p700  in_range=1  total=2267  last_activity=2026-03-13
+  [亿纬锂能(300014)] p700  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p700  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p720  in_range=1  total=2287  last_activity=2026-03-13
+  [亿纬锂能(300014)] p720  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p720  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p740  in_range=1  total=2307  last_activity=2026-03-13
+  [亿纬锂能(300014)] p740  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p740  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p760  in_range=1  total=2327  last_activity=2026-03-13
+  [亿纬锂能(300014)] p760  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p760  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p780  in_range=1  total=2347  last_activity=2026-03-13
+  [亿纬锂能(300014)] p780  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p780  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p800  in_range=1  total=2367  last_activity=2026-03-13
+  [亿纬锂能(300014)] p800  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p800  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p820  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p820  in_range=1  total=2387  last_activity=2026-03-13
+  [宁德时代(300750)] p820  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p840  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p840  in_range=1  total=2407  last_activity=2026-03-13
+  [宁德时代(300750)] p840  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p860  in_range=1  total=2427  last_activity=2026-03-13
+  [亿纬锂能(300014)] p860  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p860  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p880  in_range=1  total=2447  last_activity=2026-03-13
+  [亿纬锂能(300014)] p880  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p880  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p900  in_range=1  total=2467  last_activity=2026-03-13
+  [亿纬锂能(300014)] p900  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p900  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p920  in_range=1  total=2487  last_activity=2026-03-13
+  [亿纬锂能(300014)] p920  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p920  in_range=0  total=1598  last_activity=2026-03-13
+  [阳光电源(300274)] p940  in_range=1  total=2507  last_activity=2026-03-13
+  [亿纬锂能(300014)] p940  in_range=0  total=3114  last_activity=2026-03-13
+  [宁德时代(300750)] p940  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p960  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p960  in_range=1  total=2527  last_activity=2026-03-13
+  [宁德时代(300750)] p960  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p980  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p980  in_range=1  total=2547  last_activity=2026-03-13
+  [宁德时代(300750)] p980  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1000  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p1000  in_range=1  total=2567  last_activity=2026-03-13
+  [宁德时代(300750)] p1000  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1020  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p1020  in_range=1  total=2587  last_activity=2026-03-13
+  [宁德时代(300750)] p1020  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1040  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p1040  in_range=1  total=2607  last_activity=2026-03-13
+  [宁德时代(300750)] p1040  in_range=0  total=1598  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1060  in_range=0  total=3114  last_activity=2026-03-13
+  [阳光电源(300274)] p1060  in_range=1  total=2627  last_activity=2026-03-13
+  [宁德时代(300750)] p1060  in_range=80  total=1837  last_activity=2024-04-25
+  [亿纬锂能(300014)] p1080  in_range=80  total=3594  last_activity=2023-03-14
+  [阳光电源(300274)] p1080  in_range=80  total=3437  last_activity=2025-04-15
+  [宁德时代(300750)] p1080  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1100  in_range=1  total=4247  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1100  in_range=80  total=5194  last_activity=2023-02-28
+  [宁德时代(300750)] p1100  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1120  in_range=1  total=4267  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1120  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1120  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1140  in_range=1  total=4287  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1140  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1140  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1160  in_range=1  total=4307  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1160  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1160  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1180  in_range=1  total=4327  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1180  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1180  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1200  in_range=1  total=4347  last_activity=2026-03-13
+  [宁德时代(300750)] p1200  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1200  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1220  in_range=1  total=4367  last_activity=2026-03-13
+  [宁德时代(300750)] p1220  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1220  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1240  in_range=1  total=4387  last_activity=2026-03-13
+  [宁德时代(300750)] p1240  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1260  in_range=1  total=4407  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1240  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1260  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1280  in_range=1  total=4427  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1260  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1280  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1300  in_range=1  total=4447  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1280  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1300  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1320  in_range=1  total=4467  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1300  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1320  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1340  in_range=1  total=4487  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1320  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1340 attempt 1 ProxyError → retry 10s
+  [亿纬锂能(300014)] p1331 attempt 1 ProxyError → retry 10s
+  [阳光电源(300274)] p1360  in_range=1  total=4507  last_activity=2026-03-13
+  [宁德时代(300750)] p1340  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1340  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1380  in_range=1  total=4527  last_activity=2026-03-13
+  [宁德时代(300750)] p1360  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1360  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1400  in_range=1  total=4547  last_activity=2026-03-13
+  [宁德时代(300750)] p1380  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1380  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1420  in_range=1  total=4567  last_activity=2026-03-13
+  [宁德时代(300750)] p1400  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1400  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1440  in_range=1  total=4587  last_activity=2026-03-13
+  [宁德时代(300750)] p1420  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1420  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1460  in_range=1  total=4607  last_activity=2026-03-13
+  [宁德时代(300750)] p1440  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1440  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1480  in_range=1  total=4627  last_activity=2026-03-13
+  [宁德时代(300750)] p1460  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1460  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1500  in_range=1  total=4647  last_activity=2026-03-13
+  [宁德时代(300750)] p1480  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1480  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1520  in_range=1  total=4667  last_activity=2026-03-13
+  [宁德时代(300750)] p1500  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1500  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1540  in_range=1  total=4687  last_activity=2026-03-13
+  [宁德时代(300750)] p1520  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1520  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1560  in_range=1  total=4707  last_activity=2026-03-13
+  [宁德时代(300750)] p1540  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1540  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1580  in_range=1  total=4727  last_activity=2026-03-13
+  [宁德时代(300750)] p1560  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1560  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1600  in_range=1  total=4747  last_activity=2026-03-13
+  [宁德时代(300750)] p1580  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1580  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1620  in_range=1  total=4767  last_activity=2026-03-13
+  [宁德时代(300750)] p1600  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1600  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1640  in_range=1  total=4787  last_activity=2026-03-13
+  [宁德时代(300750)] p1620  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1620  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1660  in_range=1  total=4807  last_activity=2026-03-13
+  [宁德时代(300750)] p1640  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1640  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1680  in_range=1  total=4827  last_activity=2026-03-13
+  [宁德时代(300750)] p1660  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1660  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1700  in_range=1  total=4847  last_activity=2026-03-13
+  [宁德时代(300750)] p1680  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1680  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1720  in_range=1  total=4867  last_activity=2026-03-13
+  [宁德时代(300750)] p1700  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1700  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1740  in_range=1  total=4887  last_activity=2026-03-13
+  [宁德时代(300750)] p1720  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1720  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1760  in_range=1  total=4907  last_activity=2026-03-13
+  [宁德时代(300750)] p1740  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1740  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1780  in_range=1  total=4927  last_activity=2026-03-13
+  [宁德时代(300750)] p1760  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1760  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1800  in_range=1  total=4947  last_activity=2026-03-13
+  [宁德时代(300750)] p1780  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1780  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1820  in_range=1  total=4967  last_activity=2026-03-13
+  [宁德时代(300750)] p1800  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1800  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1840  in_range=1  total=4987  last_activity=2026-03-13
+  [宁德时代(300750)] p1820  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1820  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1860  in_range=1  total=5007  last_activity=2026-03-13
+  [宁德时代(300750)] p1840  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1880  in_range=1  total=5027  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1840  in_range=0  total=6234  last_activity=2026-03-13
+  [宁德时代(300750)] p1860  in_range=0  total=3109  last_activity=2026-03-13
+  [亿纬锂能(300014)] p1860  in_range=0  total=6234  last_activity=2026-03-13
+  [阳光电源(300274)] p1900  in_range=1  total=5047  last_activity=2026-03-13
+  [宁德时代(300750)] p1880  in_range=0  total=3109  last_activity=2026-03-13
+  [阳光电源(300274)] p1910 attempt 1 ReadTimeout → retry 10s
+  [亿纬锂能(300014)] p1873 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p1888 attempt 1 ReadTimeout → retry 10s
+  [亿纬锂能(300014)] p1873 STOP  last_activity=2020-12-22  total=6234
+  [亿纬锂能(300014)] => saved 6234 posts  years=['2023', '2024']
+  [阳光电源(300274)] p1920  in_range=80  total=5936  last_activity=2023-03-13
+  [宁德时代(300750)] p1900  in_range=80  total=4149  last_activity=2023-05-23
+  [隆基绿能(601012)] p20  in_range=0  total=0  last_activity=2026-03-11
+  [阳光电源(300274)] p1937 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p26 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p1919 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p26 attempt 2 SSLError → retry 20s
+  [阳光电源(300274)] p1937 attempt 2 SSLError → retry 20s
+  [宁德时代(300750)] p1920  in_range=0  total=4709  last_activity=2026-03-13
+  [阳光电源(300274)] p1940  in_range=1  total=6509  last_activity=2026-03-13
+  [宁德时代(300750)] p1940  in_range=0  total=4709  last_activity=2026-03-13
+  [隆基绿能(601012)] p40  in_range=0  total=0  last_activity=2026-03-13
+  [阳光电源(300274)] p1958 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p47 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p1948 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p47 attempt 2 SSLError → retry 20s
+  [阳光电源(300274)] p1958 attempt 2 SSLError → retry 20s
+  [隆基绿能(601012)] p49 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p1958 attempt 1 ReadTimeout → retry 10s
+  [阳光电源(300274)] p1960 attempt 1 ReadTimeout → retry 10s
+  [阳光电源(300274)] p1960  in_range=80  total=6766  last_activity=2023-01-06
+  [宁德时代(300750)] p1960  in_range=80  total=5749  last_activity=2023-04-21
+  [阳光电源(300274)] p1964 STOP  last_activity=2022-12-30  total=7063
+  [阳光电源(300274)] => saved 7063 posts  years=['2023', '2025']
+  [隆基绿能(601012)] p57 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p1968 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p7 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p60  in_range=0  total=0  last_activity=2026-02-26
+  [宁德时代(300750)] p1977 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p16 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p66 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p1977 attempt 2 ReadTimeout → retry 20s
+  [比亚迪(002594)] p16 attempt 2 ReadTimeout → retry 20s
+  [隆基绿能(601012)] p66 attempt 2 ReadTimeout → retry 20s
+  [宁德时代(300750)] p1980  in_range=80  total=7349  last_activity=2023-04-20
+  [比亚迪(002594)] p20  in_range=0  total=0  last_activity=2026-03-11
+  [隆基绿能(601012)] p80  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2000  in_range=0  total=8149  last_activity=2026-03-13
+  [比亚迪(002594)] p40  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p100  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2020  in_range=0  total=8149  last_activity=2026-03-13
+  [比亚迪(002594)] p60  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p120  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p64 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p123 attempt 1 ReadTimeout → retry 10s
+  [宁德时代(300750)] p2033 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p129 attempt 1 ProxyError → retry 10s
+  [宁德时代(300750)] p2040  in_range=80  total=8789  last_activity=2023-03-23
+  [比亚迪(002594)] p80  in_range=0  total=0  last_activity=2026-03-05
+  [隆基绿能(601012)] p140  in_range=0  total=0  last_activity=2026-02-02
+  [宁德时代(300750)] p2060  in_range=80  total=10389  last_activity=2023-03-17
+  [比亚迪(002594)] p100  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p160  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2080  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p120  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2100  in_range=0  total=10709  last_activity=2026-03-13
+  [隆基绿能(601012)] p177 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p180  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p140  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2120  in_range=0  total=10709  last_activity=2026-03-13
+  [隆基绿能(601012)] p200  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p160  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2140  in_range=0  total=10709  last_activity=2026-03-13
+  [隆基绿能(601012)] p220  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p180  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2160  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p200  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p240  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2180  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p220  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2200  in_range=0  total=10709  last_activity=2026-03-13
+  [隆基绿能(601012)] p260  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p240  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2220  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p260  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p280  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2240  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p280  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2260  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p300  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p295 attempt 1 ConnectionError → retry 10s
+  [隆基绿能(601012)] p300  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2280  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p320  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p320  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p340  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2300  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p360  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p340  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2320  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p380  in_range=0  total=0  last_activity=2026-03-14
+  [隆基绿能(601012)] p360  in_range=0  total=0  last_activity=2026-03-13
+  [宁德时代(300750)] p2340  in_range=0  total=10709  last_activity=2026-03-13
+  [比亚迪(002594)] p400  in_range=0  total=0  last_activity=2026-03-14
+  [宁德时代(300750)] p2360  in_range=0  total=10709  last_activity=2026-03-13
+  [隆基绿能(601012)] p380  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p418 attempt 1 ProxyError → retry 10s
+  [宁德时代(300750)] p2369 STOP  last_activity=2022-10-31  total=10709
+  [宁德时代(300750)] => saved 10709 posts  years=['2023', '2024', '2025']
+  [比亚迪(002594)] p420  in_range=80  total=240  last_activity=2025-12-07
+  [隆基绿能(601012)] p400  in_range=80  total=1200  last_activity=2025-12-03
+  [恒瑞医药(600276)] p20  in_range=0  total=0  last_activity=2026-03-02
+  [比亚迪(002594)] p440  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p420  in_range=80  total=2800  last_activity=2025-11-28
+  [恒瑞医药(600276)] p40  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p460  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p440  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p60  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p480  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p460  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p80  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p500  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p480  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p100  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p520  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p500  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p120  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p540  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p520  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p140  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p560  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p540  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p160  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p580  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p560  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p180  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p600  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p580  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p200  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p620  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p600  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p220  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p640  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p620  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p240  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p660  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p640  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p260  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p680  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p660  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p280  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p700  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p680  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p300  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p720  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p700  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p320  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p740  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p720  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p340  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p760  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p740  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p360  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p780  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p760  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p380  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p780  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p800  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p400  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p820  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p800  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p420  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p840  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p820  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p440  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p860  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p840  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p460  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p880  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p860  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p480  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p900  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p880  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p500  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p900  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p920  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p520  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p920  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p940  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p540  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p940  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p960  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p560  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p960  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p980  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p571 attempt 1 ProxyError → retry 10s
+  [隆基绿能(601012)] p964 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p981 attempt 1 ReadTimeout → retry 10s
+  [恒瑞医药(600276)] p580  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p980  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p600  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1000  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1000  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p620  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1020  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1020  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p640  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1040  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p660  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1040  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1060  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1060  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p680  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1080  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1080  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p700  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1100  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1100  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p720  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1120  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1120  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p740  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1140  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1140  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p760  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1160  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1160  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1180  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p780  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1180  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1200  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p800  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1200  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p820  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1220  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1220  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p840  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1240  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p860  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1240  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1260  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p880  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1280  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1260  in_range=0  total=2960  last_activity=2026-03-13
+  [隆基绿能(601012)] p1280  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p900  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1300  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1300  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p920  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1320  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1320  in_range=0  total=2960  last_activity=2026-03-13
+  [恒瑞医药(600276)] p940  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1340  in_range=0  total=1280  last_activity=2026-03-14
+  [隆基绿能(601012)] p1340  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1360  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p960  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1360  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1380  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p980  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1380  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1400  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1000  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1400  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1420  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1020  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1420  in_range=0  total=2960  last_activity=2026-03-13
+  [比亚迪(002594)] p1440  in_range=0  total=1280  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1040  in_range=0  total=0  last_activity=2026-03-13
+  [隆基绿能(601012)] p1440  in_range=80  total=3040  last_activity=2024-08-15
+  [比亚迪(002594)] p1458 attempt 1 ProxyError → retry 10s
+  [隆基绿能(601012)] p1441 attempt 1 ProxyError → retry 10s
+  [恒瑞医药(600276)] p1056 attempt 1 ProxyError → retry 10s
+  [比亚迪(002594)] p1460  in_range=80  total=1600  last_activity=2025-03-19
+  [恒瑞医药(600276)] p1060  in_range=80  total=480  last_activity=2023-02-05
+  [比亚迪(002594)] p1469 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p1454 attempt 1 ReadTimeout → retry 10s
+  [恒瑞医药(600276)] p1062 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p1454 attempt 2 SSLError → retry 20s
+  [比亚迪(002594)] p1480  in_range=0  total=2720  last_activity=2026-03-14
+  [隆基绿能(601012)] p1460  in_range=0  total=4080  last_activity=2026-03-13
+  [恒瑞医药(600276)] p1080  in_range=0  total=720  last_activity=2026-03-13
+  [比亚迪(002594)] p1500  in_range=0  total=2720  last_activity=2026-03-14
+  [隆基绿能(601012)] p1480  in_range=0  total=4080  last_activity=2026-03-13
+  [隆基绿能(601012)] p1486 attempt 1 ReadTimeout → retry 10s
+  [恒瑞医药(600276)] p1094 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p1515 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p1486 attempt 2 ReadTimeout → retry 20s
+  [恒瑞医药(600276)] p1095 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p1520  in_range=0  total=2720  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1100  in_range=0  total=720  last_activity=2026-03-13
+  [隆基绿能(601012)] p1500  in_range=0  total=4080  last_activity=2026-03-13
+  [比亚迪(002594)] p1540  in_range=0  total=2720  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1110 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p1520  in_range=0  total=4080  last_activity=2026-03-13
+  [恒瑞医药(600276)] p1120  in_range=0  total=720  last_activity=2026-03-13
+  [比亚迪(002594)] p1560  in_range=0  total=2720  last_activity=2026-03-14
+  [隆基绿能(601012)] p1540  in_range=0  total=4080  last_activity=2026-03-13
+  [恒瑞医药(600276)] p1140  in_range=0  total=720  last_activity=2026-03-13
+  [比亚迪(002594)] p1580  in_range=0  total=2720  last_activity=2026-03-14
+  [隆基绿能(601012)] p1560  in_range=0  total=4080  last_activity=2026-03-13
+  [恒瑞医药(600276)] p1155 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p1591 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p1569 attempt 1 ReadTimeout → retry 10s
+  [恒瑞医药(600276)] p1159 attempt 1 ReadTimeout → retry 10s
+  [恒瑞医药(600276)] p1160  in_range=0  total=720  last_activity=2026-03-13
+  [比亚迪(002594)] p1599 attempt 1 ReadTimeout → retry 10s
+  [恒瑞医药(600276)] p1161 attempt 1 ReadTimeout → retry 10s
+  [隆基绿能(601012)] p1574 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p1599 attempt 2 ReadTimeout → retry 20s
+  [恒瑞医药(600276)] p1161 attempt 2 ReadTimeout → retry 20s
+  [隆基绿能(601012)] p1575 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p1600  in_range=0  total=2720  last_activity=2026-03-14
+  [隆基绿能(601012)] p1580  in_range=0  total=4080  last_activity=2026-03-13
+  [比亚迪(002594)] p1620  in_range=0  total=2720  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1180  in_range=0  total=720  last_activity=2026-03-13
+  [隆基绿能(601012)] p1600  in_range=0  total=4080  last_activity=2026-03-13
+  [隆基绿能(601012)] p1602 attempt 1 ReadTimeout → retry 10s
+  [比亚迪(002594)] p1640  in_range=0  total=2720  last_activity=2026-03-14
+  [恒瑞医药(600276)] p1200  in_range=0  total=720  last_activity=2026-03-13
+  [隆基绿能(601012)] p1620  in_range=0  total=4080  last_activity=2026-03-13
+  [隆基绿能(601012)] p1621 attempt 1 ProxyError → retry 10s
+  [恒瑞医药(600276)] p1217 STOP  last_activity=2022-10-13  total=720
+  [恒瑞医药(600276)] => saved 720 posts  years=['2023']
+  [比亚迪(002594)] p1660  in_range=80  total=2800  last_activity=2024-11-19
+  [药明康德(603259)] p20  in_range=0  total=0  last_activity=2026-02-26
+  [比亚迪(002594)] p1680  in_range=80  total=4398  last_activity=2024-11-07
+  [隆基绿能(601012)] p1640  in_range=0  total=5439  last_activity=2026-03-13
+  [药明康德(603259)] p40  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1700  in_range=0  total=4478  last_activity=2026-03-14
+  [隆基绿能(601012)] p1660  in_range=0  total=5439  last_activity=2026-03-13
+  [药明康德(603259)] p60  in_range=0  total=0  last_activity=2026-03-13
+  [比亚迪(002594)] p1720  in_range=0  total=4478  last_activity=2026-03-14
+  [隆基绿能(601012)] p1680  in_range=0  total=5439  last_activity=2026-03-13
