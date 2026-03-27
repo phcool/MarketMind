@@ -156,28 +156,61 @@ def build_summary_prompt(stock_name: str, day_str: str, comments: list[tuple]) -
         "任务要求：\n"
         "1) 按观点聚类输出 2-3 个主要观点簇。\n"
         "2) 每个聚类都要给出 summary、sentiment_strength(0-1，表示情绪强度)、consensus_degree(0-1，表示共识强度，即这些观点的相似程度)。\n"
-        "3) 另外输出全局情绪占比：positive_ratio（正面情绪占比） / neutral_ratio（中性情绪占比） / negative_ratio（负面情绪占比）。\n\n"
+        "3) 另外输出全局情绪概率：positive_ratio（正面情绪概率） / neutral_ratio（中性情绪概率） / negative_ratio（负面情绪概率）。\n\n"
         "请只输出 JSON，不要输出 markdown 或额外解释，格式必须严格如下：\n"
         "{\n"
         "  \"clusters\": [\n"
         "    {\"summary\": \"...\", \"sentiment_strength\": 0.xx, \"consensus_degree\": 0.xx},\n"
         "    {\"summary\": \"...\", \"sentiment_strength\": 0.xx, \"consensus_degree\": 0.xx}\n"
         "  ],\n"
-        "  \"positive_ratio\": 0.xx,\n"
-        "  \"neutral_ratio\": 0.xx,\n"
-        "  \"negative_ratio\": 0.xx\n"
+        "  \"positive_probability\": 0.xx,\n"
+        "  \"neutral_probability\": 0.xx,\n"
+        "  \"negative_probability\": 0.xx\n"
         "}\n\n"
         "约束：\n"
-        "- 所有 ratio/degree/strength 都在 [0,1] 区间。\n"
+        "- 所有 probability/degree/strength 都在 [0,1] 区间。\n"
     )
 
 
-def stream_chat_summary(stock_name: str, day_str: str, comments: list[tuple]):
-    if not comments:
-        yield sse_event({"type": "error", "text": "该日没有 comments 数据可供总结。"})
-        yield sse_event({"type": "done"})
-        return
+def build_news_summary_prompt(stock_name: str, day_str: str, news_rows: list[tuple]) -> str:
+    max_items = 200
+    news_titles: list[str] = []
+    for row in news_rows[:max_items]:
+        _url, title, _d = row
+        t = (title or "").strip()
+        if t:
+            news_titles.append(t)
 
+    news_lines = [f"{i}. {t}" for i, t in enumerate(news_titles, 1)]
+    news_text = "\n".join(news_lines) if news_lines else "(无)"
+
+    return (
+        f"股票：{stock_name}\n"
+        f"日期：{day_str}\n"
+        f"以下为当日新闻标题（数据库共{len(news_rows)}条，列出{len(news_lines)}条）：\n"
+        f"{news_text}\n\n"
+        "任务要求：\n"
+        "1) 按主题聚类输出 2-3 个主要信息簇。\n"
+        "2) 每个聚类都要给出 summary、sentiment_strength(0-1，表示叙述在这个主题上的的强度)、"
+        "consensus_degree(0-1，表示不同来源在该主题上说法的一致程度)。\n"
+        "3) 另外输出全局情绪概率：positive_probability（偏多/利好观感概率） / neutral_probability（中性概率） / "
+        "negative_probability（偏空/利空观感概率）。\n\n"
+        "请只输出 JSON，不要输出 markdown 或额外解释，格式必须严格如下：\n"
+        "{\n"
+        "  \"clusters\": [\n"
+        "    {\"summary\": \"...\", \"sentiment_strength\": 0.xx, \"consensus_degree\": 0.xx},\n"
+        "    {\"summary\": \"...\", \"sentiment_strength\": 0.xx, \"consensus_degree\": 0.xx}\n"
+        "  ],\n"
+        "  \"positive_probability\": 0.xx,\n"
+        "  \"neutral_probability\": 0.xx,\n"
+        "  \"negative_probability\": 0.xx\n"
+        "}\n\n"
+        "约束：\n"
+        "- 所有 probability/degree/strength 都在 [0,1] 区间。\n"
+    )
+
+
+def stream_openai_sse_user_prompt(user_prompt: str, status_text: str):
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("CHATGPT_API_KEY")
     if not api_key:
         yield sse_event({"type": "error", "text": "未设置 OPENAI_API_KEY，无法调用模型。"})
@@ -194,7 +227,7 @@ def stream_chat_summary(stock_name: str, day_str: str, comments: list[tuple]):
         "stream": True,
         "messages": [
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": build_summary_prompt(stock_name, day_str, comments)},
+            {"role": "user", "content": user_prompt},
         ],
     }
     headers = {
@@ -202,7 +235,7 @@ def stream_chat_summary(stock_name: str, day_str: str, comments: list[tuple]):
         "Content-Type": "application/json",
     }
 
-    yield sse_event({"type": "status", "text": f"已收集评论 {len(comments)} 条，正在生成总结..."})
+    yield sse_event({"type": "status", "text": status_text})
 
     try:
         with requests.post(url, headers=headers, json=payload, stream=True, timeout=120) as resp:
@@ -238,6 +271,28 @@ def stream_chat_summary(stock_name: str, day_str: str, comments: list[tuple]):
     yield sse_event({"type": "done"})
 
 
+def stream_chat_summary(stock_name: str, day_str: str, comments: list[tuple]):
+    if not comments:
+        yield sse_event({"type": "error", "text": "该日没有 comments 数据可供总结。"})
+        yield sse_event({"type": "done"})
+        return
+
+    user_prompt = build_summary_prompt(stock_name, day_str, comments)
+    status_text = f"已收集评论 {len(comments)} 条，正在生成总结..."
+    yield from stream_openai_sse_user_prompt(user_prompt, status_text)
+
+
+def stream_news_summary(stock_name: str, day_str: str, news_rows: list[tuple]):
+    if not news_rows:
+        yield sse_event({"type": "error", "text": "该日没有 news 数据可供总结。"})
+        yield sse_event({"type": "done"})
+        return
+
+    user_prompt = build_news_summary_prompt(stock_name, day_str, news_rows)
+    status_text = f"已收集当日新闻 {len(news_rows)} 条，正在生成总结..."
+    yield from stream_openai_sse_user_prompt(user_prompt, status_text)
+
+
 @app.get('/summarize_stream')
 def summarize_stream() -> Response:
     selected_stock_id = request.args.get('stock', '')
@@ -252,6 +307,24 @@ def summarize_stream() -> Response:
             return
         data = query_data(stock, selected_day)
         yield from stream_chat_summary(stock['name'], selected_day, data['comments'])
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
+@app.get('/summarize_news_stream')
+def summarize_news_stream() -> Response:
+    selected_stock_id = request.args.get('stock', '')
+    selected_day = request.args.get('day', date.today().isoformat())
+    stock = STOCK_MAP.get(selected_stock_id)
+
+    @stream_with_context
+    def generate():
+        if not stock:
+            yield sse_event({"type": "error", "text": "股票参数无效。"})
+            yield sse_event({"type": "done"})
+            return
+        data = query_data(stock, selected_day)
+        yield from stream_news_summary(stock['name'], selected_day, data['news'])
 
     return Response(generate(), mimetype='text/event-stream')
 
@@ -357,56 +430,6 @@ def _predict_with_llm(stock_name: str, day_str: str, summary_text: str, kline_ro
         return f"请求异常：{exc}"
 
 
-def _load_recent_news_report(stock: dict, day_str: str, n: int = 3) -> dict:
-    conn = psycopg2.connect(DSN)
-    cur = conn.cursor()
-    symbol = stock["symbol"]
-
-    cur.execute(
-        """
-        SELECT url, title, date
-        FROM report
-        WHERE symbol = %s
-          AND date < %s::date
-        ORDER BY date DESC, title
-        LIMIT %s
-        """,
-        (symbol, day_str, n),
-    )
-    reports = cur.fetchall()
-
-    cur.execute(
-        """
-        SELECT url, title, date
-        FROM news
-        WHERE symbol = %s
-          AND date < %s::date
-        ORDER BY date DESC, title
-        LIMIT %s
-        """,
-        (symbol, day_str, n),
-    )
-    news = cur.fetchall()
-
-    cur.close()
-    conn.close()
-    return {"reports": reports, "news": news}
-
-
-@app.post('/recent_items')
-def recent_items():
-    payload = request.get_json(silent=True) or {}
-    selected_stock_id = payload.get('stock', '')
-    selected_day = payload.get('day', date.today().isoformat())
-
-    stock = STOCK_MAP.get(selected_stock_id)
-    if not stock:
-        return jsonify({"ok": False, "error": "股票参数无效"}), 400
-
-    data = _load_recent_news_report(stock, selected_day, n=3)
-    return jsonify({"ok": True, "reports": data["reports"], "news": data["news"]})
-
-
 @app.post('/predict')
 def predict():
     payload = request.get_json(silent=True) or {}
@@ -484,7 +507,7 @@ TEMPLATE = """
   <div class="actions" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
     <button id="btn-summary" type="button">总结当日 comments 观点（ChatGPT）</button>
     <button id="btn-predict" type="button">基于总结+近7天K线预测（1/3/7天）</button>
-    <button id="btn-recent" type="button">提取当日前最近3条 report/news</button>
+    <button id="btn-news-summary" type="button">总结当日 news（ChatGPT）</button>
   </div>
 
   <div class="card" style="margin-bottom: 20px;">
@@ -500,18 +523,9 @@ TEMPLATE = """
   </div>
 
   <div class="card" style="margin-bottom: 20px;">
-    <h2>当日前最近3条资讯</h2>
-    <div id="recent-status" class="small"></div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-      <div>
-        <div class="small"><b>Reports</b></div>
-        <ul id="recent-report-list"></ul>
-      </div>
-      <div>
-        <div class="small"><b>News</b></div>
-        <ul id="recent-news-list"></ul>
-      </div>
-    </div>
+    <h2>当日 news 总结</h2>
+    <div id="news-summary-status" class="small"></div>
+    <div id="news-summary-text" class="summary"></div>
   </div>
   {% endif %}
 
@@ -560,14 +574,13 @@ TEMPLATE = """
   <script>
     const btn = document.getElementById('btn-summary');
     const btnPredict = document.getElementById('btn-predict');
-    const btnRecent = document.getElementById('btn-recent');
+    const btnNewsSummary = document.getElementById('btn-news-summary');
     const statusEl = document.getElementById('summary-status');
     const textEl = document.getElementById('summary-text');
     const predictStatusEl = document.getElementById('predict-status');
     const predictTextEl = document.getElementById('predict-text');
-    const recentStatusEl = document.getElementById('recent-status');
-    const recentReportListEl = document.getElementById('recent-report-list');
-    const recentNewsListEl = document.getElementById('recent-news-list');
+    const newsSummaryStatusEl = document.getElementById('news-summary-status');
+    const newsSummaryTextEl = document.getElementById('news-summary-text');
 
     if (statusEl) statusEl.textContent = '就绪';
 
@@ -648,45 +661,50 @@ TEMPLATE = """
         btnPredict.disabled = false;
       }
     });
-    if (btnRecent) btnRecent.addEventListener('click', async () => {
-      if (!recentStatusEl || !recentReportListEl || !recentNewsListEl) return;
-      btnRecent.disabled = true;
-      recentStatusEl.textContent = '正在提取当日前最近3条 report/news...';
-      recentReportListEl.innerHTML = '';
-      recentNewsListEl.innerHTML = '';
+    if (newsSummaryStatusEl) newsSummaryStatusEl.textContent = '就绪';
 
-      try {
-        const resp = await fetch('/recent_items', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            stock: {{ selected_stock_id|tojson }},
-            day: {{ selected_day|tojson }}
-          }),
-        });
-        const data = await resp.json();
-        if (!resp.ok || !data.ok) {
-          recentStatusEl.textContent = data.error || '提取失败';
-        } else {
-          const reports = data.reports || [];
-          const news = data.news || [];
-          reports.forEach(([url, title, d]) => {
-            const li = document.createElement('li');
-            li.innerHTML = `<a href="${url}" target="_blank">${title}</a><div class="small">${d || ''}</div>`;
-            recentReportListEl.appendChild(li);
-          });
-          news.forEach(([url, title, d]) => {
-            const li = document.createElement('li');
-            li.innerHTML = `<a href="${url}" target="_blank">${title}</a><div class="small">${d || ''}</div>`;
-            recentNewsListEl.appendChild(li);
-          });
-          recentStatusEl.textContent = `完成：report ${reports.length} 条，news ${news.length} 条`;
+    if (btnNewsSummary) btnNewsSummary.addEventListener('click', () => {
+      if (!newsSummaryTextEl || !newsSummaryStatusEl) { return; }
+      newsSummaryTextEl.textContent = '';
+      newsSummaryStatusEl.textContent = '正在生成总结...';
+      btnNewsSummary.disabled = true;
+
+      const params = new URLSearchParams({
+        stock: {{ selected_stock_id|tojson }},
+        day: {{ selected_day|tojson }}
+      });
+
+      const es = new EventSource('/summarize_news_stream?' + params.toString());
+
+      es.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.type === 'status') {
+            newsSummaryStatusEl.textContent = data.text || '';
+          } else if (data.type === 'chunk') {
+            newsSummaryTextEl.textContent += (data.text || '');
+          } else if (data.type === 'error') {
+            newsSummaryStatusEl.textContent = data.text || '出错了';
+          } else if (data.type === 'done') {
+            if (!newsSummaryStatusEl.textContent.startsWith('调用失败')
+                && !newsSummaryStatusEl.textContent.includes('异常')) {
+              newsSummaryStatusEl.textContent = '完成';
+            }
+            btnNewsSummary.disabled = false;
+            es.close();
+          }
+        } catch (_err) {
+          newsSummaryStatusEl.textContent = '解析流式消息失败';
+          btnNewsSummary.disabled = false;
+          es.close();
         }
-      } catch (e) {
-        recentStatusEl.textContent = '请求异常: ' + e;
-      } finally {
-        btnRecent.disabled = false;
-      }
+      };
+
+      es.onerror = () => {
+        newsSummaryStatusEl.textContent = '流式连接中断';
+        btnNewsSummary.disabled = false;
+        es.close();
+      };
     });
 
   </script>
