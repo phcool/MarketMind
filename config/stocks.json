@@ -1,0 +1,53 @@
+{
+  "sectors": {
+    "电力设备与新能源": [
+      {"name": "宁德时代", "symbol": "300750", "market": "a"},
+      {"name": "亿纬锂能", "symbol": "300014", "market": "a"},
+      {"name": "阳光电源", "symbol": "300274", "market": "a"},
+      {"name": "隆基绿能", "symbol": "601012", "market": "a"},
+      {"name": "比亚迪", "symbol": "002594", "market": "a"}
+    ],
+    "医药生物": [
+      {"name": "恒瑞医药", "symbol": "600276", "market": "a"},
+      {"name": "药明康德", "symbol": "603259", "market": "a"},
+      {"name": "复星医药", "symbol": "600196", "market": "a"},
+      {"name": "迈瑞医疗", "symbol": "300760", "market": "a"},
+      {"name": "云南白药", "symbol": "000538", "market": "a"}
+    ],
+    "银行": [
+      {"name": "招商银行", "symbol": "600036", "market": "a"},
+      {"name": "工商银行", "symbol": "601398", "market": "a"},
+      {"name": "平安银行", "symbol": "000001", "market": "a"},
+      {"name": "建设银行", "symbol": "601939", "market": "a"},
+      {"name": "兴业银行", "symbol": "601166", "market": "a"}
+    ],
+    "半导体与电子": [
+      {"name": "中微公司", "symbol": "688012", "market": "a"},
+      {"name": "北方华创", "symbol": "002371", "market": "a"},
+      {"name": "华虹半导体", "symbol": "688347", "market": "a"},
+      {"name": "韦尔股份", "symbol": "603501", "market": "a"},
+      {"name": "兆易创新", "symbol": "603986", "market": "a"}
+    ],
+    "食品饮料（白酒）": [
+      {"name": "贵州茅台", "symbol": "600519", "market": "a"},
+      {"name": "五粮液", "symbol": "000858", "market": "a"},
+      {"name": "泸州老窖", "symbol": "000568", "market": "a"},
+      {"name": "洋河股份", "symbol": "002646", "market": "a"},
+      {"name": "山西汾酒", "symbol": "600809", "market": "a"}
+    ],
+    "汽车": [
+      {"name": "上汽集团", "symbol": "600104", "market": "a"},
+      {"name": "长城汽车", "symbol": "601633", "market": "a"},
+      {"name": "吉利汽车", "symbol": "00175", "market": "hk"},
+      {"name": "广汽集团", "symbol": "601238", "market": "a"},
+      {"name": "江淮汽车", "symbol": "600418", "market": "a"}
+    ],
+    "非银金融（券商）": [
+      {"name": "中信证券", "symbol": "600030", "market": "a"},
+      {"name": "东方财富", "symbol": "300059", "market": "a"},
+      {"name": "国泰君安", "symbol": "601211", "market": "a"},
+      {"name": "华泰证券", "symbol": "601688", "market": "a"},
+      {"name": "广发证券", "symbol": "000776", "market": "a"}
+    ]
+  }
+}

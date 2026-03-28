@@ -2,6 +2,8 @@
 
 这个项目围绕 7 大行业板块股票，维护了三类核心数据（行情、论坛、资讯/研报），并提供 PostgreSQL 入库与可视化分析页面。
 
+**股票清单**：`config/stocks.json`（`sectors` → 每板块内 `name` / `symbol` / `market`）。抓取脚本与 `stock_daily_dashboard` 均从此文件读取，不再扫描本地板块目录。
+
 ## 信息源总览
 
 当前主要信息源：
@@ -12,16 +14,11 @@
 - **新浪财经-研报列表**：研报标题、URL、日期（sina platform）
 - **新浪财经-研报详情页**：研报正文内容（填充 report.content）
 
-## 本地数据目录结构
+## 本地配置与缓存
 
-```text
-A股重点板块/
-└── <板块>/
-    └── <公司(代码)>/
-        └── （可选）其它本地文件；行情/股吧/新闻/研报均在 PostgreSQL
-```
-
-`stock_daily_dashboard` 与抓取脚本通过 **文件夹名** `公司(代码)` 发现股票列表；K 线来自 **`quotes` 表**，不再读取本地 `quotes/*.txt`。
+- **`config/stocks.json`**：7 个板块、35 只股票的唯一来源。
+- 行情/股吧/新闻/研报数据在 **PostgreSQL**；`stock_daily_dashboard` 的 K 线来自 **`quotes` 表**。
+- 研报正文抓取可能使用本地缓存目录（见 `fetch_report_content.py`），与股票列表无关。
 
 ## 数据库结构（PostgreSQL: `financial_data`）
 
@@ -94,6 +91,43 @@ A股重点板块/
 索引：`idx_quotes_symbol(symbol)`、`idx_quotes_trade_date(trade_date)`
 
 建表 SQL：`scripts/sql/create_quotes_table.sql` · 共享逻辑：`scripts/quotes_db.py`
+
+### 从 `quotes` 导出「7 日 K 线 → prompt」训练集
+
+脚本：`scripts/build_quotes_7d_dataset.py`  
+
+从库中读取 `trade_date <= data_end`（默认 `2026-03-28`）的日线，按股票做**滑动窗口**（7 日特征 → 第 8 日涨跌幅标签）。**归一化**在每只股票的「训练 + 验证」合并序列上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 一致），再分别写入：
+
+- **训练集**：标签日 `< 2026-01-01` → 默认 `exports/quotes_7d_pre2026_dataset.csv`
+- **验证集**：标签日 `2026-01-01`～`2026-03-28` → 默认 `exports/quotes_7d_val_20260101_20260328_dataset.csv`
+
+**CSV 第二列仍为真实涨跌幅（%）**，便于算 MAE。
+
+```bash
+python scripts/build_quotes_7d_dataset.py
+python scripts/build_quotes_7d_dataset.py -o exports/train.csv --val-output exports/val.csv
+python scripts/build_quotes_7d_dataset.py --data-end 2026-03-28 --train-before 2026-01-01 --val-start 2026-01-01 --val-end 2026-03-28
+```
+
+环境变量：`PG_DSN`（可选，默认 `dbname=financial_data`）。
+
+### GRPO 强化学习训练（Qwen2.5-7B-Instruct）
+
+使用 **Hugging Face TRL** 的 **GRPO** + **Accelerate + DeepSpeed ZeRO-3**，默认 **8 卡**（`CUDA_VISIBLE_DEVICES` 可改）。**Rollout 默认启用 vLLM**（`vllm_mode=colocate`，与训练同机共享 GPU；依赖 `trl[vllm]`）。入口：`train/train_grpo_qwen.py`；启动：`train/run_grpo_8gpu.sh`；DeepSpeed：`train/ds_zero3.json`；Accelerate：`train/accelerate_deepspeed_zero3.yaml`。架构与 reward 细节见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) **§10**。
+
+**数据**：CSV 需含 `prompt`、`pct_change`。默认 `train/dataset/quotes_7d_pre2026_dataset.csv`。
+
+**Reward**：补全**最后一行**解析浮点数（去 `%`），`reward = exp(-|pred - label| / 100)`；解析失败 **0**。
+
+```bash
+pip install -r train/requirements.txt
+# 可选：huggingface-cli login
+bash train/run_grpo_8gpu.sh
+# 关闭 vLLM（慢，仅调试）：加 --no_vllm
+# 独立 vLLM 服务：trl vllm-serve ... 后 train_grpo_qwen.py --vllm_mode server --vllm_server_base_url http://...
+```
+
+常用参数：`--vllm_gpu_memory_utilization`（colocate 显存比例）、`--num_generations`、`--max_prompt_length`、`--max_completion_length`、`--report_to tensorboard`。
 
 ## 数据量（当前库快照）
 
@@ -175,39 +209,24 @@ python scripts/fetch_news_eastmoney.py --platform eastmoney --add
 
 ---
 
-### D. 入库脚本
+### D. 统一抓取入口（可选）
 
-#### 1) 论坛入库：`scripts/import_forum_to_pg.py`
-
-将历史 **`forum/*.json`** 导入 `comments`（按 `url` 去重）；日常抓取已直写库，本脚本多用于一次性迁移。
+`scripts/fetch_market_data.py`：按 `config/stocks.json` 依次跑股吧 / 东财新闻 / 新浪研报列表（与分别运行 `fetch_forum_all.py`、`fetch_news_eastmoney.py` 等价，checkpoint 行为一致）。
 
 ```bash
-python scripts/import_forum_to_pg.py
+python scripts/fetch_market_data.py --mode all
+python scripts/fetch_market_data.py --mode comments --offset 5
 ```
 
-#### 2) 东财新闻入库：`scripts/import_eastmoney_news_to_pg.py`
-
-将历史 **`eastmoney.json`** 导入 `news`；日常抓取已直写库。
-
-```bash
-python scripts/import_eastmoney_news_to_pg.py
-```
-
-#### 3) 新浪研报列表入库：`scripts/import_sina_to_pg.py`
-
-将历史 **`sina.json`** 导入 `report`；日常抓取已直写库。
-
-```bash
-python scripts/import_sina_to_pg.py
-```
-
-#### 4) 新浪研报正文抓取：`scripts/fetch_report_content.py`
+### E. 新浪研报正文抓取：`scripts/fetch_report_content.py`
 
 对 `report.content IS NULL` 的记录抓正文并回写数据库。
 
 ```bash
 python scripts/fetch_report_content.py
 ```
+
+> **`scripts/import_all_to_pg.py` 已弃用**：仓库不再提供按本地目录树批量导入的模块；请使用上述 `fetch_*` 脚本直写数据库。
 
 ## 可视化与LLM分析页面
 
