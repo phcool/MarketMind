@@ -36,9 +36,25 @@ DSN = os.environ.get("PG_DSN", "dbname=financial_data")
 HEADER = """过去7个交易日的K线数据如下（同一股票内：归一化统计量由截至数据截止日的训练+验证行情合并估计；open/high/low/close 各自 Min-Max 到[0,1]；成交量为 ln(1+volume) 后再 Min-Max；涨跌幅为 Z-score；换手率为 Min-Max；振幅为原始值）：
 """
 
-TAIL = """请分析这7天的市场趋势与成交情况，判断多空力量变化，并预测下一个交易日（Day8）的收盘涨跌幅（pct_change, 单位%）。
+TAIL = """请结合上文的 Day1–Day7，简要判断趋势、成交与多空力量，并预测下一个交易日（Day8）的收盘涨跌幅（pct_change，单位%）。
 
-只需在最后一行给出预测值。"""
+【输出格式（必须严格遵守）】
+1. 你可以有文字思考过程，写在前面，控制在两三句或一小段内；禁止冗长的分点列表占满篇幅却不给出最终数字。
+2. 全文的最后一行必须是单独一行，且该行只含一个阿拉伯数字（可带负号与小数点），表示 Day8 的预测涨跌幅数值；该行不要写其他字符.
+
+【格式示例（下方 K 线为虚构，仅演示回答长什么样；请根据上文真实数据作答）】
+Day1: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+Day2: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+Day3: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+Day4: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+Day5: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+Day6: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+Day7: open=0.*, high=0.*, low=0.*, close=0.*, volume=0.*, amplitude=0.*, pct_change=0.*, turnover=0.*
+
+近两日收复跌幅、量能尚可，短线略偏多。
+0.*
+
+现在请按上述格式输出你对真实 Day1–Day7 的结论：最后一行仅一个数字（可带负号与小数点）,单位是%。"""
 
 
 def _to_float(x: Any) -> float | None:
