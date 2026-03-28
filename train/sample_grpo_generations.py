@@ -70,7 +70,7 @@ def main() -> None:
     p.add_argument("--num_prompts", type=int, default=10)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max_prompt_length", type=int, default=6144)
-    p.add_argument("--max_new_tokens", type=int, default=128)
+    p.add_argument("--max_new_tokens", type=int, default=512)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--top_p", type=float, default=1.0)
     args = p.parse_args()
