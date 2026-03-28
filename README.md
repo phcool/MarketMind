@@ -207,7 +207,7 @@ python scripts/fetch_news_eastmoney.py --platform sina
 python scripts/fetch_news_eastmoney.py --platform eastmoney --add
 ```
 
-**新闻正文落盘（不入库）**：`scripts/fetch_news_content_to_disk.py` 从 **`exports/news.csv`**（默认路径，可由 `--csv` 指定；可先运行 `scripts/export_pg_tables_to_csv.py` 导出）读取 `url,symbol,title,date`，抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
+**新闻正文落盘（不入库）**：`scripts/fetch_news_content_to_disk.py` 从 **`exports/news.csv`**（默认路径，可由 `--csv` 指定；可先运行 `scripts/export_pg_tables_to_csv.py` 导出）读取 `url,symbol,title,date`，抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。失败时按指数退避重试：首次等待 `--retry-base-delay`（默认与 `--delay` 相同），每次再失败则等待时间翻倍，最多 `--max-attempts` 次（默认 5）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
 
 ```bash
 python scripts/fetch_news_content_to_disk.py
@@ -215,7 +215,7 @@ python scripts/fetch_news_content_to_disk.py --all
 python scripts/fetch_news_content_to_disk.py --symbols 300750,300014 --since 2025-11-01 --force
 ```
 
-**研报正文落盘（不入库）**：`scripts/fetch_report_content_to_disk.py` 从 **`exports/report.csv`**（默认，`--csv` 可改）读取行，复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
+**研报正文落盘（不入库）**：`scripts/fetch_report_content_to_disk.py` 从 **`exports/report.csv`**（默认，`--csv` 可改）读取行，复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。失败时指数退避重试：`--retry-base-delay`（默认同 `--delay`，默认 2s）、`--max-attempts`（默认 5）、`--timeout`。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
 
 ```bash
 python scripts/fetch_report_content_to_disk.py

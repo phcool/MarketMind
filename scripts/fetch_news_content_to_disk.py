@@ -98,6 +98,56 @@ def extract_content_body(html: str) -> str:
     return node.get_text(separator="\n", strip=True)
 
 
+def fetch_news_body_with_retries(
+    session: requests.Session,
+    url: str,
+    *,
+    timeout: float,
+    retry_base: float,
+    max_attempts: int,
+    log_label: str,
+) -> str | None:
+    """
+    GET page and extract #ContentBody. On failure or empty body, sleep retry_base * 2^(k-1)
+    before the next attempt (k = failed attempt index, 1-based).
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = session.get(url, timeout=timeout)
+            resp.raise_for_status()
+            enc = resp.encoding or "utf-8"
+            if resp.apparent_encoding:
+                try:
+                    resp.encoding = resp.apparent_encoding
+                except Exception:
+                    resp.encoding = enc
+            html = resp.text
+            body = extract_content_body(html)
+            if body:
+                return body
+            log.warning(
+                "%s empty #ContentBody (attempt %d/%d) %s",
+                log_label,
+                attempt,
+                max_attempts,
+                url[:100],
+            )
+        except Exception as exc:
+            log.warning(
+                "%s attempt %d/%d failed %s: %s",
+                log_label,
+                attempt,
+                max_attempts,
+                url[:80],
+                exc,
+            )
+        if attempt < max_attempts:
+            wait = retry_base * (2 ** (attempt - 1))
+            log.info("%s retry in %.1fs", log_label, wait)
+            time.sleep(wait)
+    return None
+
+
 def build_file_content(
     url: str,
     symbol: str,
@@ -192,7 +242,19 @@ def main() -> None:
         default=DEFAULT_NEWS_CSV,
         help=f"news CSV path (default: {DEFAULT_NEWS_CSV})",
     )
-    ap.add_argument("--delay", type=float, default=1.0, help="Seconds between HTTP requests.")
+    ap.add_argument("--delay", type=float, default=1.0, help="Seconds after each finished URL (success or give-up).")
+    ap.add_argument(
+        "--retry-base-delay",
+        type=float,
+        default=None,
+        help="First backoff seconds after a failed attempt; doubles each retry. Default: same as --delay.",
+    )
+    ap.add_argument(
+        "--max-attempts",
+        type=int,
+        default=5,
+        help="Max HTTP attempts per URL (exponential backoff between failures).",
+    )
     ap.add_argument("--timeout", type=float, default=30.0, help="Per-request timeout seconds.")
     ap.add_argument(
         "--force",
@@ -222,6 +284,8 @@ def main() -> None:
 
     session = requests.Session()
     session.headers.update(HEADERS)
+    retry_base = args.retry_base_delay if args.retry_base_delay is not None else args.delay
+    max_attempts = max(1, args.max_attempts)
 
     ok = skip = fail = 0
     for i, (url, sym, title, d) in enumerate(rows, 1):
@@ -234,28 +298,23 @@ def main() -> None:
             continue
 
         path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            resp = session.get(url, timeout=args.timeout)
-            resp.raise_for_status()
-            enc = resp.encoding or "utf-8"
-            if resp.apparent_encoding:
-                try:
-                    resp.encoding = resp.apparent_encoding
-                except Exception:
-                    resp.encoding = enc
-            html = resp.text
-            body = extract_content_body(html)
-            if not body:
-                log.warning("[%d/%d] empty #ContentBody: %s", i, len(rows), url[:100])
-                fail += 1
-                continue
+        label = f"[{i}/{len(rows)}]"
+        body = fetch_news_body_with_retries(
+            session,
+            url,
+            timeout=args.timeout,
+            retry_base=retry_base,
+            max_attempts=max_attempts,
+            log_label=label,
+        )
+        if body:
             text = build_file_content(url, sym, title, d, body)
             path.write_text(text, encoding="utf-8")
             ok += 1
             if i % 20 == 0:
                 log.info("progress ok=%d skip=%d fail=%d [%d/%d]", ok, skip, fail, i, len(rows))
-        except Exception as exc:
-            log.warning("[%d/%d] failed %s: %s", i, len(rows), url[:80], exc)
+        else:
+            log.warning("%s gave up after %d attempts %s", label, max_attempts, url[:80])
             fail += 1
         time.sleep(args.delay)
 

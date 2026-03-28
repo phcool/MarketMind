@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
-from fetch_report_content import worker as fetch_report_worker
+from fetch_report_content import fetch_report_worker_disk
 from stock_universe import all_symbols, load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -148,6 +148,25 @@ def main() -> None:
         help=f"report CSV path (default: {DEFAULT_REPORT_CSV})",
     )
     ap.add_argument("--workers", type=int, default=1, help="Concurrent fetches (default 1 for rate limits).")
+    ap.add_argument(
+        "--delay",
+        type=float,
+        default=2.0,
+        help="Seconds after each worker finishes one URL (polite pacing; same as fetch_report_content.REQUEST_DELAY).",
+    )
+    ap.add_argument(
+        "--retry-base-delay",
+        type=float,
+        default=None,
+        help="First backoff seconds after a failed attempt; doubles each retry. Default: same as --delay.",
+    )
+    ap.add_argument(
+        "--max-attempts",
+        type=int,
+        default=5,
+        help="Max HTTP attempts per URL (exponential backoff between failures).",
+    )
+    ap.add_argument("--timeout", type=float, default=20.0, help="Per-request timeout seconds.")
     ap.add_argument("--force", action="store_true", help="Re-fetch even when cache file has body.")
     ap.add_argument("--dry-run", action="store_true", help="List rows only.")
     args = ap.parse_args()
@@ -186,12 +205,25 @@ def main() -> None:
             log.info("... and %d more", len(to_fetch) - 50)
         return
 
+    retry_base = args.retry_base_delay if args.retry_base_delay is not None else args.delay
+    max_attempts = max(1, args.max_attempts)
+
     done = 0
     failed = 0
     written = 0
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = {pool.submit(fetch_report_worker, url): (url, title, d) for url, title, d in to_fetch}
+        futures = {}
+        for url, title, d in to_fetch:
+            fut = pool.submit(
+                fetch_report_worker_disk,
+                url,
+                timeout=args.timeout,
+                retry_base=retry_base,
+                max_attempts=max_attempts,
+                request_delay=args.delay,
+            )
+            futures[fut] = (url, title, d)
         for future in as_completed(futures):
             url, title, d = futures[future]
             done += 1

@@ -103,6 +103,47 @@ def fetch_url(session: requests.Session, url: str) -> str | None:
     return None
 
 
+def fetch_url_with_backoff(
+    session: requests.Session,
+    url: str,
+    *,
+    timeout: float,
+    retry_base: float,
+    max_attempts: int,
+) -> str | None:
+    """
+    Like fetch_url but with exponential backoff between transient failures.
+    Sleep before retry k: retry_base * 2^(k-1). Returns '' on 4xx or empty parse after
+    all attempts; None if only transient errors and attempts exhausted.
+    """
+    empty_after_200 = False
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = session.get(url, timeout=timeout)
+            if 400 <= resp.status_code < 500:
+                log.warning("  HTTP %d (skip) %s", resp.status_code, url)
+                return ""
+            resp.raise_for_status()
+            resp.encoding = "gb2312"
+            text = parse_content(resp.text)
+            if (text or "").strip():
+                return text
+            empty_after_200 = True
+            log.warning("  [%d/%d] empty parse %s", attempt, max_attempts, url[:80])
+        except requests.HTTPError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code is not None and 400 <= code < 500:
+                return ""
+            log.warning("  [%d/%d] HTTP error %s — %s", attempt, max_attempts, url[:80], exc)
+        except Exception as exc:
+            log.warning("  [%d/%d] %s — %s", attempt, max_attempts, url[:80], exc)
+        if attempt < max_attempts:
+            wait = retry_base * (2 ** (attempt - 1))
+            log.info("  retry in %.1fs", wait)
+            time.sleep(wait)
+    return "" if empty_after_200 else None
+
+
 # ── worker ────────────────────────────────────────────────────────────────────
 
 def worker(url: str) -> tuple[str, str | None]:
@@ -110,6 +151,28 @@ def worker(url: str) -> tuple[str, str | None]:
     session.headers.update(HEADERS)
     content = fetch_url(session, url)
     time.sleep(REQUEST_DELAY)
+    return url, content
+
+
+def fetch_report_worker_disk(
+    url: str,
+    *,
+    timeout: float,
+    retry_base: float,
+    max_attempts: int,
+    request_delay: float,
+) -> tuple[str, str | None]:
+    """For fetch_report_content_to_disk: backoff retries then polite delay before next task."""
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    content = fetch_url_with_backoff(
+        session,
+        url,
+        timeout=timeout,
+        retry_base=retry_base,
+        max_attempts=max_attempts,
+    )
+    time.sleep(request_delay)
     return url, content
 
 
