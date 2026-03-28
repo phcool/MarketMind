@@ -207,6 +207,22 @@ python scripts/fetch_news_eastmoney.py --platform sina
 python scripts/fetch_news_eastmoney.py --platform eastmoney --add
 ```
 
+**新闻正文落盘（不入库）**：`scripts/fetch_news_content_to_disk.py` 根据 `news` 表中的 URL 抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
+
+```bash
+python scripts/fetch_news_content_to_disk.py
+python scripts/fetch_news_content_to_disk.py --all
+python scripts/fetch_news_content_to_disk.py --symbols 300750,300014 --since 2025-11-01 --force
+```
+
+**研报正文落盘（不入库）**：`scripts/fetch_report_content_to_disk.py` 复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
+
+```bash
+python scripts/fetch_report_content_to_disk.py
+python scripts/fetch_report_content_to_disk.py --all
+python scripts/fetch_report_content_to_disk.py --workers 2 --force
+```
+
 ---
 
 ### D. 统一抓取入口（可选）
@@ -249,13 +265,15 @@ python scripts/stock_daily_dashboard.py
 
 - [http://127.0.0.1:5050](http://127.0.0.1:5050)
 
-### 页面LLM相关环境变量
+### 页面 LLM（阿里云 DashScope / 通义，OpenAI 兼容流式）
 
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`（默认 `https://api.chatanywhere.tech/v1`）
-- `OPENAI_MODEL`（默认 `gpt-5`）
+看板通过 **`openai`** 客户端连接 **`https://dashscope.aliyuncs.com/compatible-mode/v1`**，**全部使用流式** `chat.completions.create(..., stream=True)`（与官方示例一致）。`.env` 示例：
 
-可放在 `.env`，或直接 `export` 后再启动页面。
+- **`DASHSCOPE_API_KEY`** 或 **`DASHBOARD_API_KEY`**：与地域绑定的 API Key
+- **`DASHSCOPE_BASE_URL`**（可选）：默认上述 compatible-mode 地址
+- **`DASHSCOPE_MODEL`** / **`QWEN_MODEL`**（可选）：默认 `qwen3-max`
+
+依赖：`pip install openai`。项目根目录 `.env` 会由 `stock_daily_dashboard.py` 自动加载。
 
 ## 备注
 

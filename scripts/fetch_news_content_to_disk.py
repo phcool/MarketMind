@@ -1,0 +1,248 @@
+"""
+Fetch full news article body from East Money HTML (div#ContentBody) for selected stocks.
+
+Reads URLs from PostgreSQL `news` (no DB writes). Saves text under:
+  Content/news/{YYYY-MM}/{sha256(url).hex}.txt
+
+File format (same idea as report cache):
+  URL=...
+  SYMBOL=...
+  TITLE=...
+  DATE=...
+  ---
+  <body paragraphs joined by newlines>
+
+Resume: skips rows whose output file already exists and has non-empty body after '---'.
+
+Requires: requests, beautifulsoup4, psycopg2; DB: PG_DSN or dbname=financial_data.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import logging
+import os
+import time
+from datetime import date
+from pathlib import Path
+
+import psycopg2
+import requests
+from bs4 import BeautifulSoup
+
+from stock_universe import all_symbols, load_sectors
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+CONTENT_NEWS_DIR = ROOT_DIR / "Content" / "news"
+DSN = os.environ.get("PG_DSN", "dbname=financial_data")
+
+DEFAULT_SECTOR = "电力设备与新能源"
+DEFAULT_SINCE = date(2025, 11, 1)
+ALL_SINCE = date(2025, 1, 1)  # --all: from 2025-01-01 unless --since given
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Referer": "https://www.eastmoney.com/",
+}
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
+
+def url_to_relpath(url: str, news_date: date) -> Path:
+    """year_month folder + hash filename."""
+    ym = f"{news_date.year}-{news_date.month:02d}"
+    h = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return Path(ym) / f"{h}.txt"
+
+
+def output_path(url: str, news_date: date) -> Path:
+    return CONTENT_NEWS_DIR / url_to_relpath(url, news_date)
+
+
+def is_already_done(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if "URL=" not in raw or "\n---\n" not in raw:
+        return False
+    _, _, body = raw.partition("\n---\n")
+    return bool(body.strip())
+
+
+def extract_content_body(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    node = soup.select_one("#ContentBody") or soup.select_one("div.txtinfos#ContentBody")
+    if not node:
+        return ""
+    parts: list[str] = []
+    for p in node.find_all("p"):
+        t = p.get_text(separator="", strip=True)
+        if t:
+            parts.append(t)
+    if parts:
+        return "\n\n".join(parts)
+    return node.get_text(separator="\n", strip=True)
+
+
+def build_file_content(
+    url: str,
+    symbol: str,
+    title: str,
+    news_date: date,
+    body: str,
+) -> str:
+    title_one = (title or "").replace("\r", " ").replace("\n", " ").strip()
+    return (
+        f"URL={url}\n"
+        f"SYMBOL={symbol}\n"
+        f"TITLE={title_one}\n"
+        f"DATE={news_date.isoformat()}\n"
+        f"---\n"
+        f"{body.strip()}\n"
+    )
+
+
+def load_rows(
+    cur,
+    symbols: list[str],
+    since: date,
+) -> list[tuple[str, str, str, date]]:
+    cur.execute(
+        """
+        SELECT url, symbol, title, date
+        FROM news
+        WHERE symbol = ANY(%s)
+          AND date >= %s
+        ORDER BY date ASC NULLS LAST, url ASC
+        """,
+        (symbols, since),
+    )
+    out: list[tuple[str, str, str, date]] = []
+    for row in cur.fetchall():
+        url, sym, title, d = row
+        if not url or not sym:
+            continue
+        if d is None:
+            continue
+        out.append((str(url).strip(), str(sym), str(title or ""), d))
+    return out
+
+
+def symbols_for_sector(sector: str) -> list[str]:
+    sectors = load_sectors()
+    if sector not in sectors:
+        raise SystemExit(f"Unknown sector {sector!r}; available: {list(sectors.keys())}")
+    return [t[1] for t in sectors[sector]]
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Fetch news HTML body to Content/news/{YYYY-MM}/")
+    ap.add_argument(
+        "--sector",
+        default=DEFAULT_SECTOR,
+        help=f"Sector name in config/stocks.json (default: {DEFAULT_SECTOR})",
+    )
+    ap.add_argument(
+        "--since",
+        default=None,
+        help="Minimum news.date (YYYY-MM-DD). Default: with --all → 2025-01-01; else → 2025-11-01.",
+    )
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="All symbols in config/stocks.json (~35); from 2025-01-01 onward unless --since is set.",
+    )
+    ap.add_argument(
+        "--symbols",
+        default="",
+        help="Comma-separated symbols; if set, overrides --sector (ignored with --all).",
+    )
+    ap.add_argument("--delay", type=float, default=1.0, help="Seconds between HTTP requests.")
+    ap.add_argument("--timeout", type=float, default=30.0, help="Per-request timeout seconds.")
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-fetch even if output file already has body.",
+    )
+    ap.add_argument("--dry-run", action="store_true", help="List work only, no HTTP writes.")
+    args = ap.parse_args()
+
+    since_s = (args.since or "").strip()
+    if args.all:
+        symbols = all_symbols()
+        since = date.fromisoformat(since_s) if since_s else ALL_SINCE
+    elif args.symbols.strip():
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+        since = date.fromisoformat(since_s) if since_s else DEFAULT_SINCE
+    else:
+        symbols = symbols_for_sector(args.sector)
+        since = date.fromisoformat(since_s) if since_s else DEFAULT_SINCE
+
+    CONTENT_NEWS_DIR.mkdir(parents=True, exist_ok=True)
+
+    conn = psycopg2.connect(DSN)
+    cur = conn.cursor()
+    rows = load_rows(cur, symbols, since)
+    cur.close()
+    conn.close()
+
+    log.info("Loaded %d news rows (symbols=%s, since=%s)", len(rows), symbols, since)
+
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    ok = skip = fail = 0
+    for i, (url, sym, title, d) in enumerate(rows, 1):
+        path = output_path(url, d)
+        if not args.force and is_already_done(path):
+            skip += 1
+            continue
+        if args.dry_run:
+            log.info("[%d/%d] would fetch %s -> %s", i, len(rows), url[:80], path)
+            continue
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            resp = session.get(url, timeout=args.timeout)
+            resp.raise_for_status()
+            enc = resp.encoding or "utf-8"
+            if resp.apparent_encoding:
+                try:
+                    resp.encoding = resp.apparent_encoding
+                except Exception:
+                    resp.encoding = enc
+            html = resp.text
+            body = extract_content_body(html)
+            if not body:
+                log.warning("[%d/%d] empty #ContentBody: %s", i, len(rows), url[:100])
+                fail += 1
+                continue
+            text = build_file_content(url, sym, title, d, body)
+            path.write_text(text, encoding="utf-8")
+            ok += 1
+            if i % 20 == 0:
+                log.info("progress ok=%d skip=%d fail=%d [%d/%d]", ok, skip, fail, i, len(rows))
+        except Exception as exc:
+            log.warning("[%d/%d] failed %s: %s", i, len(rows), url[:80], exc)
+            fail += 1
+        time.sleep(args.delay)
+
+    log.info("done ok=%d skip=%d fail=%d total=%d", ok, skip, fail, len(rows))
+
+
+if __name__ == "__main__":
+    main()

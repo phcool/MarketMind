@@ -46,3 +46,15 @@ def load_sectors() -> dict[str, list[tuple[str, str, str]]]:
             rows.append((name, symbol, market))
         out[str(sector_name)] = rows
     return out
+
+
+def all_symbols() -> list[str]:
+    """All symbols in config/stocks.json, sector order, first occurrence wins (deduped)."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for companies in load_sectors().values():
+        for _name, sym, _market in companies:
+            if sym not in seen:
+                seen.add(sym)
+                ordered.append(sym)
+    return ordered

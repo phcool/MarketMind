@@ -2,7 +2,7 @@
 GRPO training for Qwen2.5-7B-Instruct on quotes_7d CSV (prompt + pct_change).
 
 Rollout uses vLLM by default (colocate with training on the same GPUs; TRL + ZeRO-3).
-Reward: last line of completion -> float (strip %); reward = exp(-abs(pred-label)/100); else 0.
+Reward: parse last line as `pct_change_prediction: <float>%` (or fallback: bare number); reward = exp(-abs(pred-label)/100); else 0.
 
 Launch (8 GPUs, DeepSpeed ZeRO-3 + vLLM colocate):
   cd <repo_root> && bash train/run_grpo_8gpu.sh
@@ -27,21 +27,36 @@ REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_TRAIN_CSV = REPO_ROOT / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
 
 _FLOAT_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
+# Last line: "pct_change_prediction: -1.25%" (dataset prompt format)
+_PRED_LINE_RE = re.compile(
+    r"^\s*pct_change_prediction\s*:\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*%?\s*$",
+    re.IGNORECASE,
+)
 
 
-def extract_last_line_float(text: str) -> float | None:
-    """Take the last non-empty line, strip %, extract first float token."""
+def extract_pct_change_prediction(text: str) -> float | None:
+    """
+    Match dataset output contract: last non-empty line is
+    `pct_change_prediction: <float>%` (optional %). Fallback: last line is a lone number.
+    """
     if not text or not str(text).strip():
         return None
     lines = [ln.strip() for ln in str(text).strip().splitlines() if ln.strip()]
     if not lines:
         return None
-    last = lines[-1].replace("%", "").strip()
-    m = _FLOAT_RE.search(last)
-    if not m:
+    last = lines[-1]
+    m = _PRED_LINE_RE.match(last)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    last_no_pct = last.replace("%", "").strip()
+    m2 = _FLOAT_RE.search(last_no_pct)
+    if not m2:
         return None
     try:
-        return float(m.group(0))
+        return float(m2.group(0))
     except ValueError:
         return None
 
@@ -63,13 +78,14 @@ def pct_change_exp_reward(
     **kwargs,
 ):
     """
-    TRL GRPO reward: exp(-abs(pred - gt) / 100). pred from last line of completion.
+    TRL GRPO reward: exp(-abs(pred - gt) / 100). pred from last line
+    (`pct_change_prediction: ...` or bare number).
     Dataset column must be named `pct_change` (passed through by GRPOTrainer).
     """
     rewards: list[float] = []
     ok = 0
     for comp, gt in zip(completions, pct_change):
-        pred = extract_last_line_float(_completion_to_text(comp))
+        pred = extract_pct_change_prediction(_completion_to_text(comp))
         if pred is None:
             rewards.append(0.0)
             continue

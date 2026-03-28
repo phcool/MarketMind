@@ -6,22 +6,76 @@ import os
 from datetime import date
 from pathlib import Path
 
-import psycopg2
-import requests
 import pandas as pd
+import psycopg2
 from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
 from fetch_report_content import fetch_report_plaintext
 from stock_universe import load_sectors
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None  # type: ignore[misc, assignment]
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 REPORT_CACHE_DIR = ROOT_DIR / "Content" / "report"
 DSN = "dbname=financial_data"
 MAX_REPORT_BODY_CHARS = 8000
 
-# OpenAI-compatible API settings
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.chatanywhere.tech/v1")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
+
+def _load_dotenv() -> None:
+    """Load KEY=value pairs from repo root .env into os.environ (no override if already set)."""
+    path = ROOT_DIR / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+_load_dotenv()
+
+# Qwen via DashScope OpenAI-compatible API (streaming for all calls)
+DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", os.getenv("QWEN_MODEL", "qwen3-max"))
+DASHSCOPE_COMPAT_BASE_URL = os.getenv(
+    "DASHSCOPE_BASE_URL",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+)
+
+
+def _dashscope_api_key() -> str | None:
+    return os.getenv("DASHBOARD_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+
+
+def _qwen_openai_client():
+    """OpenAI-compatible client for DashScope; returns None if missing deps or key."""
+    if OpenAI is None:
+        return None
+    key = _dashscope_api_key()
+    if not key:
+        return None
+    return OpenAI(api_key=key, base_url=DASHSCOPE_COMPAT_BASE_URL)
+
+
+def _chat_completions_stream(client, *, model: str, messages: list[dict]):
+    """Stream chat completions; uses stream_options when the installed openai package supports it."""
+    kwargs = dict(model=model, messages=messages, stream=True)
+    try:
+        return client.chat.completions.create(**kwargs, stream_options={"include_usage": True})
+    except TypeError:
+        return client.chat.completions.create(**kwargs)
+
 
 app = Flask(__name__)
 
@@ -196,7 +250,7 @@ def stream_recent_reports_summary(stock_name: str, day_str: str, report_rows: li
         packed.append((i, page_url, title or "", d, body))
 
     user_prompt = build_recent_reports_summary_prompt(stock_name, day_str, packed)
-    yield from stream_openai_sse_user_prompt(
+    yield from stream_qwen_sse_user_prompt(
         user_prompt,
         f"已汇总 {n} 篇研报正文，正在生成观点总结...",
     )
@@ -293,59 +347,33 @@ def build_news_summary_prompt(stock_name: str, day_str: str, news_rows: list[tup
     )
 
 
-def stream_openai_sse_user_prompt(user_prompt: str, status_text: str):
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("CHATGPT_API_KEY")
-    if not api_key:
-        yield sse_event({"type": "error", "text": "未设置 OPENAI_API_KEY，无法调用模型。"})
+def stream_qwen_sse_user_prompt(user_prompt: str, status_text: str):
+    client = _qwen_openai_client()
+    if not _dashscope_api_key():
+        yield sse_event(
+            {"type": "error", "text": "未设置 DASHBOARD_API_KEY 或 DASHSCOPE_API_KEY（见项目根目录 .env）。"}
+        )
+        yield sse_event({"type": "done"})
+        return
+    if client is None:
+        yield sse_event({"type": "error", "text": "未安装 openai，请执行：pip install openai"})
         yield sse_event({"type": "done"})
         return
 
-    base = OPENAI_BASE_URL.rstrip("/")
-    if not base.endswith("/v1"):
-        base = base + "/v1"
-    url = base + "/chat/completions"
-
-    payload = {
-        "model": OPENAI_MODEL,
-        "stream": True,
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": user_prompt},
+    ]
 
     yield sse_event({"type": "status", "text": status_text})
 
     try:
-        with requests.post(url, headers=headers, json=payload, stream=True, timeout=120) as resp:
-            if resp.status_code != 200:
-                txt = resp.text[:300]
-                yield sse_event({"type": "error", "text": f"调用失败 HTTP={resp.status_code}: {txt}"})
-                yield sse_event({"type": "done"})
-                return
-
-            resp.encoding = "utf-8"
-            for raw in resp.iter_lines(decode_unicode=False):
-                if not raw:
-                    continue
-                try:
-                    line = raw.decode("utf-8").strip()
-                except UnicodeDecodeError:
-                    line = raw.decode("utf-8", errors="replace").strip()
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(data)
-                    delta = obj["choices"][0].get("delta", {}).get("content", "")
-                except Exception:
-                    delta = ""
+        stream = _chat_completions_stream(
+            client, model=DASHSCOPE_MODEL, messages=messages
+        )
+        for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta.content or ""
                 if delta:
                     yield sse_event({"type": "chunk", "text": _repair_mojibake(delta)})
     except Exception as exc:
@@ -362,7 +390,7 @@ def stream_chat_summary(stock_name: str, day_str: str, comments: list[tuple]):
 
     user_prompt = build_summary_prompt(stock_name, day_str, comments)
     status_text = f"已收集评论 {len(comments)} 条，正在生成总结..."
-    yield from stream_openai_sse_user_prompt(user_prompt, status_text)
+    yield from stream_qwen_sse_user_prompt(user_prompt, status_text)
 
 
 def stream_news_summary(stock_name: str, day_str: str, news_rows: list[tuple]):
@@ -377,7 +405,7 @@ def stream_news_summary(stock_name: str, day_str: str, news_rows: list[tuple]):
 
     user_prompt = build_news_summary_prompt(stock_name, day_str, news_rows)
     status_text = f"已收集当日新闻 {len(news_rows)} 条，正在生成总结..."
-    yield from stream_openai_sse_user_prompt(user_prompt, status_text)
+    yield from stream_qwen_sse_user_prompt(user_prompt, status_text)
 
 
 @app.get('/summarize_stream')
@@ -480,21 +508,19 @@ def _load_recent_kline(stock: dict, day_str: str, n: int = 7) -> list[dict]:
 
 
 def _predict_with_llm(stock_name: str, day_str: str, summary_text: str, kline_rows: list[dict]) -> str:
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("CHATGPT_API_KEY")
-    if not api_key:
-        return "未设置 OPENAI_API_KEY，无法调用模型。"
-
-    base = OPENAI_BASE_URL.rstrip("/")
-    if not base.endswith("/v1"):
-        base = base + "/v1"
-    url = base + "/chat/completions"
+    """Aggregate streaming completion into one string (same API as SSE paths, stream=True)."""
+    client = _qwen_openai_client()
+    if not _dashscope_api_key():
+        return "未设置 DASHBOARD_API_KEY 或 DASHSCOPE_API_KEY（见项目根目录 .env）。"
+    if client is None:
+        return "未安装 openai，请执行：pip install openai"
 
     kline_text = "\n".join(
         f"- {r['date']}: open={r.get('open')}, high={r.get('high')}, low={r.get('low')}, close={r.get('close')}, pct={r.get('pct')}, volume={r.get('volume')}"
         for r in kline_rows
     )
 
-    prompt = (
+    user_content = (
         f"股票：{stock_name}\n"
         f"当前日期：{day_str}\n\n"
         f"当日舆情总结：\n{summary_text}\n\n"
@@ -506,24 +532,26 @@ def _predict_with_llm(stock_name: str, day_str: str, summary_text: str, kline_ro
         "每段包含：方向（上涨/下跌）、置信度（0-1）、一句主要依据。"
     )
 
-    payload = {
-        "model": OPENAI_MODEL,
-        "stream": False,
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt},
-        ],
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": user_content},
+    ]
 
+    parts: list[str] = []
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=120)
-        if resp.status_code != 200:
-            return f"调用失败 HTTP={resp.status_code}: {resp.text[:300]}"
-        obj = resp.json()
-        return obj["choices"][0]["message"]["content"]
+        stream = _chat_completions_stream(
+            client, model=DASHSCOPE_MODEL, messages=messages
+        )
+        for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    parts.append(_repair_mojibake(delta))
     except Exception as exc:
         return f"请求异常：{exc}"
+
+    text = "".join(parts)
+    return text if text.strip() else "(模型返回空内容)"
 
 
 @app.post('/predict')
@@ -601,10 +629,10 @@ TEMPLATE = """
   <div class="small">当前：{{ stock.name }} ({{ stock.code_text }})，{{ selected_day }}</div>
 
   <div class="actions" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-    <button id="btn-summary" type="button">总结当日 comments 观点（ChatGPT）</button>
+    <button id="btn-summary" type="button">总结当日 comments 观点（Qwen）</button>
     <button id="btn-predict" type="button">基于总结+近7天K线预测（1/3/7天）</button>
-    <button id="btn-news-summary" type="button">总结当日 news（ChatGPT）</button>
-    <button id="btn-reports-summary" type="button">总结最近3条研报正文（ChatGPT）</button>
+    <button id="btn-news-summary" type="button">总结当日 news（Qwen）</button>
+    <button id="btn-reports-summary" type="button">总结最近3条研报正文（Qwen）</button>
   </div>
 
   <div class="card" style="margin-bottom: 20px;">
