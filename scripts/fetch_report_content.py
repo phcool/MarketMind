@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 # ── HTML parsing ──────────────────────────────────────────────────────────────
 
 def parse_content(html: str) -> str:
-    """Extract plain text from div.blk_container paragraphs."""
+    """Extract plain text from div.blk_container paragraphs (<br> -> newline)."""
     soup = BeautifulSoup(html, "lxml")
     container = soup.select_one("div.blk_container")
     if not container:
@@ -63,6 +63,21 @@ def parse_content(html: str) -> str:
             parts.append(text)
 
     return "\n\n".join(parts)
+
+
+def fetch_report_plaintext(url: str, timeout: int = REQUEST_TIMEOUT) -> str:
+    """
+    HTTP GET one Sina-style research report page and return body text from div.blk_container > p.
+    Returns "" on 4xx or empty parse; raises on repeated network/5xx if caller handles.
+    """
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    resp = session.get(url, timeout=timeout)
+    if 400 <= resp.status_code < 500:
+        return ""
+    resp.raise_for_status()
+    resp.encoding = "gb2312"
+    return parse_content(resp.text)
 
 
 # ── HTTP fetch ────────────────────────────────────────────────────────────────

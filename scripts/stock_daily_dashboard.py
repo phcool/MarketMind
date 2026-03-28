@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,9 +12,13 @@ import requests
 import pandas as pd
 from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
+from fetch_report_content import fetch_report_plaintext
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BASE_DIR = ROOT_DIR / "A股重点板块"
+REPORT_CACHE_DIR = ROOT_DIR / "Content" / "report"
 DSN = "dbname=financial_data"
+MAX_REPORT_BODY_CHARS = 8000
 
 # OpenAI-compatible API settings
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.chatanywhere.tech/v1")
@@ -96,9 +101,9 @@ def query_data(stock: dict, day_str: str) -> dict:
         SELECT url, title, date
         FROM report
         WHERE symbol = %s
-          AND date = %s::date
-        ORDER BY title
-        LIMIT 500
+          AND date <= %s::date
+        ORDER BY date DESC NULLS LAST, title
+        LIMIT 3
         """,
         (symbol, day_str),
     )
@@ -108,6 +113,104 @@ def query_data(stock: dict, day_str: str) -> dict:
     conn.close()
 
     return {"comments": comments, "news": news_rows, "reports": report_rows}
+
+
+def _report_cache_path(page_url: str) -> Path:
+    key = hashlib.sha256(page_url.encode("utf-8")).hexdigest()
+    return REPORT_CACHE_DIR / f"{key}.txt"
+
+
+def _read_report_cache_file(path: Path) -> str:
+    """Return cached body text, or '' if missing/invalid."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    if raw.startswith("URL=") and "\n---\n" in raw:
+        _, body = raw.split("\n---\n", 1)
+        return body.strip()
+    # Legacy: whole file is body
+    return raw.strip()
+
+
+def _write_report_cache_file(path: Path, page_url: str, title: str, report_date, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    date_s = str(report_date) if report_date is not None else ""
+    meta = f"URL={page_url}\nTITLE={title}\nDATE={date_s}\n"
+    path.write_text(meta + "---\n" + body, encoding="utf-8")
+
+
+def load_or_fetch_report_body(page_url: str, title: str, report_date) -> str:
+    """Load plaintext from Content/report/<sha256>.txt or fetch Sina page and cache."""
+    path = _report_cache_path(page_url)
+    if path.is_file():
+        cached = _read_report_cache_file(path)
+        if cached:
+            return cached
+    try:
+        body = fetch_report_plaintext(page_url)
+    except Exception:
+        body = ""
+    body = (body or "").strip()
+    if body:
+        _write_report_cache_file(path, page_url, title or "", report_date, body)
+    return body
+
+
+def build_recent_reports_summary_prompt(
+    stock_name: str,
+    day_str: str,
+    reports_packed: list[tuple[int, str, str, object, str]],
+) -> str:
+    """
+    reports_packed: (index, url, title, date, body) for each report (newest-first order).
+    """
+    blocks = []
+    for idx, url, title, d, body in reports_packed:
+        t = (title or "").strip()
+        snippet = body.strip() if body else "(正文抓取失败或为空，请仅依据标题与日期推理，勿编造细节)"
+        if len(snippet) > MAX_REPORT_BODY_CHARS:
+            snippet = snippet[:MAX_REPORT_BODY_CHARS] + "\n...[truncated]..."
+        blocks.append(
+            f"--- Report #{idx} ---\n"
+            f"title: {t}\n"
+            f"date: {d}\n"
+            f"url: {url}\n"
+            f"body:\n{snippet}\n"
+        )
+    corpus = "\n".join(blocks)
+    return (
+        f"股票：{stock_name}\n"
+        f"所选截止日期：{day_str}\n"
+        f"以下为截至该日期的最近 {len(reports_packed)} 篇卖方/研报正文（按日期新到旧排列）。\n\n"
+        f"{corpus}\n\n"
+        "请用中文输出对该组研报的**综合总结**（可用 markdown 小标题分段），至少包含：\n"
+        "1) 主要观点与逻辑主线；\n"
+        "2) 共同提到的风险因素和潜在机会；\n"
+        "3) 对投资者的简短结论要点。\n" 
+        "勿编造正文中未出现的数据；若某篇仅有标题，请明确说明信息不足。\n"
+    )
+
+
+def stream_recent_reports_summary(stock_name: str, day_str: str, report_rows: list[tuple]):
+    if not report_rows:
+        yield sse_event({"type": "error", "text": "没有可总结的研报（最近3条为空）。"})
+        yield sse_event({"type": "done"})
+        return
+
+    packed: list[tuple[int, str, str, object, str]] = []
+    n = len(report_rows)
+    for i, row in enumerate(report_rows, start=1):
+        page_url, title, d = row
+        yield sse_event({"type": "status", "text": f"正在获取研报正文 [{i}/{n}]（缓存优先）..."})
+        body = load_or_fetch_report_body(page_url, title or "", d)
+        packed.append((i, page_url, title or "", d, body))
+
+    user_prompt = build_recent_reports_summary_prompt(stock_name, day_str, packed)
+    yield from stream_openai_sse_user_prompt(
+        user_prompt,
+        f"已汇总 {n} 篇研报正文，正在生成观点总结...",
+    )
 
 
 def sse_event(payload: dict) -> str:
@@ -181,32 +284,23 @@ def build_news_summary_prompt(stock_name: str, day_str: str, news_rows: list[tup
         if t:
             news_titles.append(t)
 
-    news_lines = [f"{i}. {t}" for i, t in enumerate(news_titles, 1)]
+    n_listed = len(news_titles)
+    news_lines = [f"news_id={i} | {t}" for i, t in enumerate(news_titles, 1)]
     news_text = "\n".join(news_lines) if news_lines else "(无)"
 
     return (
         f"股票：{stock_name}\n"
         f"日期：{day_str}\n"
-        f"以下为当日新闻标题（数据库共{len(news_rows)}条，列出{len(news_lines)}条）：\n"
+        f"以下为当日新闻标题列表（数据库共{len(news_rows)}条，下列含标题共{n_listed}条）。"
+        "每行前缀 news_id 为序号，便于你在正文中引用（如「见 news_id=3」），不得编造表中不存在的 news_id。\n"
         f"{news_text}\n\n"
-        "任务要求：\n"
-        "1) 按主题聚类输出 2-3 个主要信息簇。\n"
-        "2) 每个聚类都要给出 summary、sentiment_strength(0-1，表示叙述在这个主题上的的强度)、"
-        "consensus_degree(0-1，表示不同来源在该主题上说法的一致程度)。\n"
-        "3) 另外输出全局情绪概率：positive_probability（偏多/利好观感概率） / neutral_probability（中性概率） / "
-        "negative_probability（偏空/利空观感概率）。\n\n"
-        "请只输出 JSON，不要输出 markdown 或额外解释，格式必须严格如下：\n"
-        "{\n"
-        "  \"clusters\": [\n"
-        "    {\"summary\": \"...\", \"sentiment_strength\": 0.xx, \"consensus_degree\": 0.xx},\n"
-        "    {\"summary\": \"...\", \"sentiment_strength\": 0.xx, \"consensus_degree\": 0.xx}\n"
-        "  ],\n"
-        "  \"positive_probability\": 0.xx,\n"
-        "  \"neutral_probability\": 0.xx,\n"
-        "  \"negative_probability\": 0.xx\n"
-        "}\n\n"
-        "约束：\n"
-        "- 所有 probability/degree/strength 都在 [0,1] 区间。\n"
+        "请用中文输出对当日新闻的**综合总结**（可用 markdown 小标题分段），至少包含：\n"
+        "1) 主要信息主题与逻辑主线；\n"
+        "2) 媒体叙述整体偏积极、中性或偏谨慎的大致倾向；\n"
+        "4) 你认为与该股未来走向关联最强的新闻：按重要性列出至多十条，并标明对应 news_id；"
+        "若当日新闻不足十条则全部列出；\n"
+        "5) 对投资者的简短结论要点。\n"
+        "勿编造正文中未出现的标题或事实；若某条仅有标题、信息不足请明确说明。\n"
     )
 
 
@@ -287,6 +381,10 @@ def stream_news_summary(stock_name: str, day_str: str, news_rows: list[tuple]):
         yield sse_event({"type": "error", "text": "该日没有 news 数据可供总结。"})
         yield sse_event({"type": "done"})
         return
+    if not any((row[1] or "").strip() for row in news_rows):
+        yield sse_event({"type": "error", "text": "该日 news 无有效标题可供总结。"})
+        yield sse_event({"type": "done"})
+        return
 
     user_prompt = build_news_summary_prompt(stock_name, day_str, news_rows)
     status_text = f"已收集当日新闻 {len(news_rows)} 条，正在生成总结..."
@@ -329,55 +427,64 @@ def summarize_news_stream() -> Response:
     return Response(generate(), mimetype='text/event-stream')
 
 
+@app.get('/summarize_reports_stream')
+def summarize_reports_stream() -> Response:
+    selected_stock_id = request.args.get('stock', '')
+    selected_day = request.args.get('day', date.today().isoformat())
+    stock = STOCK_MAP.get(selected_stock_id)
+
+    @stream_with_context
+    def generate():
+        if not stock:
+            yield sse_event({"type": "error", "text": "股票参数无效。"})
+            yield sse_event({"type": "done"})
+            return
+        data = query_data(stock, selected_day)
+        yield from stream_recent_reports_summary(
+            stock['name'], selected_day, data['reports']
+        )
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
 def _load_recent_kline(stock: dict, day_str: str, n: int = 7) -> list[dict]:
-    """Load last n trading rows from local quotes files up to day_str."""
+    """Load last n trading rows from `quotes` table up to day_str (chronological order)."""
     try:
         day = pd.to_datetime(day_str).date()
     except Exception:
         return []
 
-    company_dir = BASE_DIR / stock["sector"] / f"{stock['name']}({stock['code_text']})"
-    quotes_dir = company_dir / "quotes"
-    if not quotes_dir.exists():
-        return []
+    symbol = stock["symbol"]
+    conn = psycopg2.connect(DSN)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT trade_date, open, high, low, close, pct_change, volume
+            FROM quotes
+            WHERE symbol = %s AND trade_date <= %s
+            ORDER BY trade_date DESC
+            LIMIT %s
+            """,
+            (symbol, day, n),
+        )
+        raw_rows = list(reversed(cur.fetchall()))
+    finally:
+        cur.close()
+        conn.close()
 
-    frames = []
-    for txt in quotes_dir.rglob("*.txt"):
-        try:
-            df = pd.read_csv(txt, sep=r"\s+", engine="python")
-            if df.empty:
-                continue
-            date_col = "日期" if "日期" in df.columns else df.columns[0]
-            df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-            df = df[df[date_col].notna()]
-            if df.empty:
-                continue
-            df = df[df[date_col].dt.date <= day]
-            if df.empty:
-                continue
-            df["_date"] = df[date_col].dt.date
-            frames.append(df)
-        except Exception:
-            continue
-
-    if not frames:
-        return []
-
-    all_df = pd.concat(frames, ignore_index=True)
-    all_df = all_df.sort_values("_date").drop_duplicates(subset=["_date"], keep="last")
-    tail = all_df.tail(n)
-
-    out = []
-    for _, r in tail.iterrows():
+    out: list[dict] = []
+    for row in raw_rows:
+        td, o, h, l, c, pct, vol = row
         out.append(
             {
-                "date": str(r.get("_date")),
-                "open": r.get("开盘"),
-                "high": r.get("最高"),
-                "low": r.get("最低"),
-                "close": r.get("收盘"),
-                "pct": r.get("涨跌幅"),
-                "volume": r.get("成交量"),
+                "date": str(td),
+                "open": float(o) if o is not None else None,
+                "high": float(h) if h is not None else None,
+                "low": float(l) if l is not None else None,
+                "close": float(c) if c is not None else None,
+                "pct": float(pct) if pct is not None else None,
+                "volume": int(vol) if vol is not None else None,
             }
         )
     return out
@@ -479,7 +586,7 @@ TEMPLATE = """
 </head>
 <body>
   <h1>股票单日数据查看</h1>
-  <div class="muted">选择股票和日期，查看数据库中的 comments / news / reports。</div>
+  <div class="muted">选择股票和日期：comments / news 为当日数据；reports 为截至所选日期的最近 3 条。</div>
 
   <form method="get">
     <label>
@@ -508,6 +615,7 @@ TEMPLATE = """
     <button id="btn-summary" type="button">总结当日 comments 观点（ChatGPT）</button>
     <button id="btn-predict" type="button">基于总结+近7天K线预测（1/3/7天）</button>
     <button id="btn-news-summary" type="button">总结当日 news（ChatGPT）</button>
+    <button id="btn-reports-summary" type="button">总结最近3条研报正文（ChatGPT）</button>
   </div>
 
   <div class="card" style="margin-bottom: 20px;">
@@ -526,6 +634,13 @@ TEMPLATE = """
     <h2>当日 news 总结</h2>
     <div id="news-summary-status" class="small"></div>
     <div id="news-summary-text" class="summary"></div>
+  </div>
+
+  <div class="card" style="margin-bottom: 20px;">
+    <h2>最近3条研报总结（正文）</h2>
+    <div id="reports-summary-status" class="small"></div>
+    <div class="reports-summary-hint small" style="margin-bottom:6px;">正文缓存在项目 Content/report/（按 URL 哈希 .txt），有则直接读。</div>
+    <div id="reports-summary-text" class="summary"></div>
   </div>
   {% endif %}
 
@@ -557,8 +672,8 @@ TEMPLATE = """
     </div>
 
     <div class="card">
-      <h2>Reports</h2>
-      <div class="count">{{ data.reports|length }} 条</div>
+      <h2>Reports（最近 3 条）</h2>
+      <div class="count">截至 {{ selected_day }}，共 {{ data.reports|length }} 条</div>
       <ul>
         {% for url, title, d in data.reports %}
           <li>
@@ -575,12 +690,15 @@ TEMPLATE = """
     const btn = document.getElementById('btn-summary');
     const btnPredict = document.getElementById('btn-predict');
     const btnNewsSummary = document.getElementById('btn-news-summary');
+    const btnReportsSummary = document.getElementById('btn-reports-summary');
     const statusEl = document.getElementById('summary-status');
     const textEl = document.getElementById('summary-text');
     const predictStatusEl = document.getElementById('predict-status');
     const predictTextEl = document.getElementById('predict-text');
     const newsSummaryStatusEl = document.getElementById('news-summary-status');
     const newsSummaryTextEl = document.getElementById('news-summary-text');
+    const reportsSummaryStatusEl = document.getElementById('reports-summary-status');
+    const reportsSummaryTextEl = document.getElementById('reports-summary-text');
 
     if (statusEl) statusEl.textContent = '就绪';
 
@@ -703,6 +821,52 @@ TEMPLATE = """
       es.onerror = () => {
         newsSummaryStatusEl.textContent = '流式连接中断';
         btnNewsSummary.disabled = false;
+        es.close();
+      };
+    });
+
+    if (reportsSummaryStatusEl) reportsSummaryStatusEl.textContent = '就绪';
+
+    if (btnReportsSummary) btnReportsSummary.addEventListener('click', () => {
+      if (!reportsSummaryTextEl || !reportsSummaryStatusEl) { return; }
+      reportsSummaryTextEl.textContent = '';
+      reportsSummaryStatusEl.textContent = '正在准备...';
+      btnReportsSummary.disabled = true;
+
+      const params = new URLSearchParams({
+        stock: {{ selected_stock_id|tojson }},
+        day: {{ selected_day|tojson }}
+      });
+
+      const es = new EventSource('/summarize_reports_stream?' + params.toString());
+
+      es.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.type === 'status') {
+            reportsSummaryStatusEl.textContent = data.text || '';
+          } else if (data.type === 'chunk') {
+            reportsSummaryTextEl.textContent += (data.text || '');
+          } else if (data.type === 'error') {
+            reportsSummaryStatusEl.textContent = data.text || '出错了';
+          } else if (data.type === 'done') {
+            if (!reportsSummaryStatusEl.textContent.startsWith('调用失败')
+                && !reportsSummaryStatusEl.textContent.includes('异常')) {
+              reportsSummaryStatusEl.textContent = '完成';
+            }
+            btnReportsSummary.disabled = false;
+            es.close();
+          }
+        } catch (_err) {
+          reportsSummaryStatusEl.textContent = '解析流式消息失败';
+          btnReportsSummary.disabled = false;
+          es.close();
+        }
+      };
+
+      es.onerror = () => {
+        reportsSummaryStatusEl.textContent = '流式连接中断';
+        btnReportsSummary.disabled = false;
         es.close();
       };
     });

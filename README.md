@@ -18,22 +18,10 @@
 A股重点板块/
 └── <板块>/
     └── <公司(代码)>/
-        ├── quotes/                    # 行情（按年/月）
-        │   └── <YYYY>/<MM>.txt
-        ├── forum/                     # 论坛帖子（按年/月/日）
-        │   └── <YYYY>/<MM>/<DD>.json
-        └── news/                      # 资讯/研报（按年/月/日）
-            └── <YYYY>/<MM>/<DD>/
-                ├── eastmoney.json
-                └── sina.json
+        └── （可选）其它本地文件；行情/股吧/新闻/研报均在 PostgreSQL
 ```
 
-当前文件规模（本地统计）：
-
-- `forum/*.json`: **126,812**
-- `news/*/eastmoney.json`: **2,762**
-- `news/*/sina.json`: **4,803**
-- `quotes/*.txt`: **1,518**
+`stock_daily_dashboard` 与抓取脚本通过 **文件夹名** `公司(代码)` 发现股票列表；K 线来自 **`quotes` 表**，不再读取本地 `quotes/*.txt`。
 
 ## 数据库结构（PostgreSQL: `financial_data`）
 
@@ -85,6 +73,28 @@ A股重点板块/
 - `idx_report_symbol(symbol)`
 - `idx_report_date(date)`
 
+### 4) `quotes`
+
+日线行情（由 `fetch_stocks.py` 写入；列语义与 akshare 日线一致）。
+
+字段：
+
+- `symbol` `VARCHAR(10)` — 股票代码（与 `trade_date` 联合主键）
+- `trade_date` `DATE`
+- `open` / `close` / `high` / `low` `NUMERIC(14,4)`
+- `volume` `BIGINT` — 成交量
+- `amount` `NUMERIC(22,6)` — 成交额
+- `amplitude` `NUMERIC(10,4)` — 振幅
+- `pct_change` `NUMERIC(10,4)` — 涨跌幅
+- `change_amount` `NUMERIC(14,4)` — 涨跌额
+- `turnover` `NUMERIC(10,4)` — 换手率
+
+主键：`PRIMARY KEY (symbol, trade_date)`
+
+索引：`idx_quotes_symbol(symbol)`、`idx_quotes_trade_date(trade_date)`
+
+建表 SQL：`scripts/sql/create_quotes_table.sql` · 共享逻辑：`scripts/quotes_db.py`
+
 ## 数据量（当前库快照）
 
 - `comments`: **3,301,111**
@@ -101,13 +111,14 @@ A股重点板块/
 
 ### A. 行情抓取：`scripts/fetch_stocks.py`
 
-作用：抓取日线行情并写入 `quotes/`。
+作用：通过 akshare 抓取日线行情并 **upsert 到 PostgreSQL `quotes` 表**（主键 `symbol` + `trade_date`）。
 
 特性：
 
-- 支持 checkpoint：`checkpoint/fetch_stocks_checkpoint.json`
-- 默认增量更新（从上次最新日期+1开始）
-- `--add` 可忽略 checkpoint 重拉
+- checkpoint：`checkpoint/fetch_stocks_checkpoint.json`（按股票代码记录已抓到的最新交易日）
+- 默认增量（从 checkpoint 次日抓到今日）
+- `--add` 从 `DEFAULT_START_DATE` 全量重拉（仍按主键去重更新）
+- 依赖：`akshare`、`pandas`、`psycopg2`；DSN 同 `PG_DSN` / `dbname=financial_data`
 
 用法：
 
@@ -120,7 +131,7 @@ python scripts/fetch_stocks.py --add
 
 ### B. 论坛抓取：`scripts/fetch_forum_all.py`
 
-作用：抓取股吧帖子并写入 `forum/YYYY/MM/DD.json`。
+作用：抓取股吧帖子并写入 PostgreSQL **`comments`** 表（按 `url` 去重）。
 
 特性（已实现）：
 
@@ -150,7 +161,7 @@ python scripts/fetch_forum_all.py --offset 10
 特性：
 
 - checkpoint 按平台独立管理（`checkpoint/fetch_news_<platform>_checkpoint.json`）
-- `--add` 全量重抓（不清空历史文件，按 URL 去重追加）
+- `--add` 全量重抓（数据库按 `url` 去重 upsert/跳过重复）
 - Eastmoney 使用新闻搜索 URL（按股票名 + 时间排序，最多 50 页）
 - 已支持 zero-save-streak（连续 5 页无新增则停止）
 
@@ -168,7 +179,7 @@ python scripts/fetch_news_eastmoney.py --platform eastmoney --add
 
 #### 1) 论坛入库：`scripts/import_forum_to_pg.py`
 
-将 `forum` 数据导入 `comments` 表（按 `url` 去重）。
+将历史 **`forum/*.json`** 导入 `comments`（按 `url` 去重）；日常抓取已直写库，本脚本多用于一次性迁移。
 
 ```bash
 python scripts/import_forum_to_pg.py
@@ -176,7 +187,7 @@ python scripts/import_forum_to_pg.py
 
 #### 2) 东财新闻入库：`scripts/import_eastmoney_news_to_pg.py`
 
-将 `eastmoney.json` 导入 `news` 表（`symbol` 为 6 位代码）。
+将历史 **`eastmoney.json`** 导入 `news`；日常抓取已直写库。
 
 ```bash
 python scripts/import_eastmoney_news_to_pg.py
@@ -184,7 +195,7 @@ python scripts/import_eastmoney_news_to_pg.py
 
 #### 3) 新浪研报列表入库：`scripts/import_sina_to_pg.py`
 
-将 `sina.json` 导入 `report` 表（`symbol` 为 6 位代码）。
+将历史 **`sina.json`** 导入 `report`；日常抓取已直写库。
 
 ```bash
 python scripts/import_sina_to_pg.py
@@ -206,8 +217,8 @@ python scripts/fetch_report_content.py
 
 - 选股票 + 选日期查看当日 `comments / news / reports`
 - 一键总结当日评论观点（流式输出）
-- 基于“总结 + 最近7天K线”预测 1/3/7 天走势
-- 一键提取当日前最近 3 条 `report` 与 3 条 `news`
+- 基于“总结 + 最近 7 交易日 K 线（`quotes` 表）”预测 1/3/7 天走势
+- 总结最近 3 条研报正文、当日 news 等（见页面按钮）
 
 启动：
 

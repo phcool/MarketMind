@@ -1,2 +1,5 @@
 *.json
 *.txt
+
+# CSV exports (often >100MB; regenerate: python scripts/export_pg_tables_to_csv.py)
+exports/

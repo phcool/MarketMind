@@ -7,33 +7,46 @@ Supported platforms (--platform):
   sina      Static HTML from stock.finance.sina.com.cn/stock/go.php/vReport_List.
              Parses table.tb_01 tr rows (GBK encoding) for title, url, date; paginate until empty.
 
-Storage: A股重点板块/<sector>/<company>/news/<YYYY>/<MM>/<DD>/<platform>.json
-Each file is a JSON array of news entries for that day. Deduplication by article URL.
+Storage: PostgreSQL — eastmoney -> `news`, sina -> `report` (ON CONFLICT(url) DO NOTHING).
+PG_DSN or dbname=financial_data. Only A-share 6-digit symbols are inserted.
 
-Each platform has its own fetch function and checkpoint file (fetch_news_<platform>_checkpoint.json).
-Use --add to ignore checkpoint and re-fetch all companies; existing data is merged, not cleared.
+Each platform has its own checkpoint file (fetch_news_<platform>_checkpoint.json).
+Use --add to ignore checkpoint and re-fetch all companies.
 """
 
 import argparse
 import json
+import os
 import re
 import time
 import logging
-from collections import defaultdict
 from datetime import datetime, date
 from pathlib import Path
 from typing import Callable
 
+import psycopg2
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from psycopg2.extras import execute_values
 
 # ── configuration ────────────────────────────────────────────────────────────
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-BASE_DIR = ROOT_DIR / "A股重点板块"
 CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
 PLATFORMS = ["eastmoney", "sina"]
+DSN = os.environ.get("PG_DSN", "dbname=financial_data")
+
+SQL_INSERT_NEWS = """
+    INSERT INTO news (url, symbol, title, date)
+    VALUES %s
+    ON CONFLICT (url) DO NOTHING
+"""
+SQL_INSERT_REPORT = """
+    INSERT INTO report (url, symbol, title, date)
+    VALUES %s
+    ON CONFLICT (url) DO NOTHING
+"""
 
 def checkpoint_path(platform: str) -> Path:
     """Per-platform checkpoint file under project_root/checkpoint/."""
@@ -145,6 +158,60 @@ def folder_name(name: str, symbol: str, market: str) -> str:
 
 def _company_key(sector: str, name: str, symbol: str, market: str) -> str:
     return f"{sector}/{folder_name(name, symbol, market)}"
+
+
+def db_symbol_for_insert(symbol: str, market: str) -> str | None:
+    """Same rule as import_* scripts: only mainland A-share 6-digit code."""
+    if market != "a":
+        return None
+    if len(symbol) == 6 and symbol.isdigit():
+        return symbol
+    return None
+
+
+def insert_news_rows(cur, sym: str, entries: list[dict]) -> int:
+    rows: list[tuple] = []
+    for e in entries:
+        url = (e.get("url") or "").strip()
+        if not url:
+            continue
+        title = (e.get("title") or "").strip()
+        d = e.get("date")
+        if not d:
+            continue
+        try:
+            day = datetime.fromisoformat(d).date()
+        except (ValueError, TypeError):
+            continue
+        rows.append((url, sym, title, day))
+    if not rows:
+        return 0
+    execute_values(cur, SQL_INSERT_NEWS, rows)
+    n = cur.rowcount
+    return n if n is not None and n >= 0 else 0
+
+
+def insert_report_rows(cur, sym: str, entries: list[dict]) -> int:
+    rows: list[tuple] = []
+    for e in entries:
+        url = (e.get("url") or "").strip()
+        if not url:
+            continue
+        title = (e.get("title") or "").strip()
+        d = e.get("date")
+        if not d:
+            continue
+        try:
+            day = datetime.fromisoformat(d).date()
+        except (ValueError, TypeError):
+            continue
+        rows.append((url, sym, title, day))
+    if not rows:
+        return 0
+    execute_values(cur, SQL_INSERT_REPORT, rows)
+    n = cur.rowcount
+    return n if n is not None and n >= 0 else 0
+
 
 # ── checkpoint (per-platform: set of completed company_key) ────────────────────
 
@@ -287,9 +354,8 @@ def scrape_eastmoney(page, keyword: str) -> list[dict]:
 
     return collected
 
-def fetch_eastmoney(page, name: str, symbol: str, market: str, sector: str) -> None:
-    """Fetch news for one company from East Money and save to news/.../eastmoney.json."""
-    company_dir = BASE_DIR / sector / folder_name(name, symbol, market)
+def fetch_eastmoney(page, cur, name: str, symbol: str, market: str, sector: str) -> None:
+    """Fetch news from East Money and insert into table `news`."""
     log.info("━━ %s (%s) ━━", name, symbol)
 
     entries = scrape_eastmoney(page, name)
@@ -300,10 +366,14 @@ def fetch_eastmoney(page, name: str, symbol: str, market: str, sector: str) -> N
     with_date = [e for e in entries if e.get("date")]
     without_date = len(entries) - len(with_date)
     if without_date:
-        log.warning("  %d entries without date (skipped for storage)", without_date)
+        log.warning("  %d entries without date (skipped for DB)", without_date)
 
-    save_news_by_date(with_date, company_dir, "eastmoney")
-    log.info("  Saved %d entries (%d with date)", len(entries), len(with_date))
+    sym = db_symbol_for_insert(symbol, market)
+    if not sym:
+        log.warning("  Skip DB insert: not A-share 6-digit (%s, market=%s)", symbol, market)
+        return
+    n = insert_news_rows(cur, sym, with_date)
+    log.info("  Collected %d (%d with date), DB new rows: %d", len(entries), len(with_date), n)
 
 # ── sina ─────────────────────────────────────────────────────────────────────
 
@@ -416,64 +486,33 @@ def scrape_sina(symbol: str, market: str) -> list[dict]:
 
     return collected
 
-def fetch_sina(page, name: str, symbol: str, market: str, sector: str) -> None:  # noqa: ARG001
-    """Fetch news for one company from Sina Finance and save to news/.../sina.json."""
-    company_dir = BASE_DIR / sector / folder_name(name, symbol, market)
+def fetch_sina(page, cur, name: str, symbol: str, market: str, sector: str) -> None:  # noqa: ARG001
+    """Fetch Sina research list and insert into table `report`."""
     log.info("━━ %s (%s) ━━", name, symbol)
 
     entries = scrape_sina(symbol, market)
     if not entries:
-        log.warning("  No news collected")
+        log.warning("  No entries collected")
         return
 
     with_date = [e for e in entries if e.get("date")]
     without_date = len(entries) - len(with_date)
     if without_date:
-        log.warning("  %d entries without date (skipped for storage)", without_date)
+        log.warning("  %d entries without date (skipped for DB)", without_date)
 
-    save_news_by_date(with_date, company_dir, "sina")
-    log.info("  Saved %d entries (%d with date)", len(entries), len(with_date))
+    sym = db_symbol_for_insert(symbol, market)
+    if not sym:
+        log.warning("  Skip DB insert: not A-share 6-digit (%s, market=%s)", symbol, market)
+        return
+    n = insert_report_rows(cur, sym, with_date)
+    log.info("  Collected %d (%d with date), DB new rows: %d", len(entries), len(with_date), n)
 
-# Platform registry: platform name -> fetch(page, name, symbol, market, sector)
+# Platform registry: fetch(page, cur, name, symbol, market, sector)
 FETCHERS: dict[str, Callable[..., None]] = {
     "eastmoney": fetch_eastmoney,
     "sina": fetch_sina,
 }
 
-def save_news_by_date(entries: list[dict], company_dir: Path, platform: str) -> None:
-    """Group entries by date and write news/YYYY/MM/DD/<platform>.json. Dedup by url."""
-    by_date: dict[date, list[dict]] = defaultdict(list)
-    for e in entries:
-        d = e.get("date")
-        if not d:
-            continue
-        try:
-            day = datetime.fromisoformat(d).date()
-        except (ValueError, TypeError):
-            continue
-        by_date[day].append(e)
-
-    for day, day_entries in by_date.items():
-        out_dir = company_dir / "news" / str(day.year) / f"{day.month:02d}" / f"{day.day:02d}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"{platform}.json"
-
-        existing: list[dict] = []
-        if out_file.exists():
-            try:
-                existing = json.loads(out_file.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                existing = []
-
-        seen_urls = {e.get("url") for e in existing if e.get("url")}
-        new_entries = [e for e in day_entries if e.get("url") and e["url"] not in seen_urls]
-        if not new_entries:
-            continue
-        merged = existing + new_entries
-        out_file.write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -488,7 +527,7 @@ def main() -> None:
     parser.add_argument(
         "--add",
         action="store_true",
-        help="Ignore checkpoint and re-fetch all companies; existing data is merged, not cleared.",
+        help="Ignore checkpoint and re-fetch all companies; DB skips duplicate urls.",
     )
     args = parser.parse_args()
     platform = args.platform
@@ -505,35 +544,47 @@ def main() -> None:
     if use_checkpoint and completed_set:
         log.info("Checkpoint loaded for %s: %d companies already done", platform, len(completed_set))
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 720},
-        )
-        page = context.new_page()
+    conn = psycopg2.connect(DSN)
+    conn.autocommit = False
+    cur = conn.cursor()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 720},
+            )
+            page = context.new_page()
 
-        try:
-            for sector, companies in SECTORS.items():
-                for name, symbol, market in companies:
-                    done += 1
-                    company_key = _company_key(sector, name, symbol, market)
-                    if company_key in completed_set:
-                        log.info("── [%d/%d] %s / %s — skip (already done)", done, total, sector, name)
-                        continue
-                    log.info("── [%d/%d] %s / %s", done, total, sector, name)
-                    try:
-                        fetcher(page, name, symbol, market, sector)
-                        completed_set.add(company_key)
-                        save_checkpoint(platform, completed_set)
-                    except Exception as exc:
-                        log.exception("  Error: %s", exc)
-                    time.sleep(1)
-        finally:
-            browser.close()
+            try:
+                for sector, companies in SECTORS.items():
+                    for name, symbol, market in companies:
+                        done += 1
+                        company_key = _company_key(sector, name, symbol, market)
+                        if company_key in completed_set:
+                            log.info(
+                                "── [%d/%d] %s / %s — skip (already done)",
+                                done, total, sector, name,
+                            )
+                            continue
+                        log.info("── [%d/%d] %s / %s", done, total, sector, name)
+                        try:
+                            fetcher(page, cur, name, symbol, market, sector)
+                            conn.commit()
+                            completed_set.add(company_key)
+                            save_checkpoint(platform, completed_set)
+                        except Exception as exc:
+                            conn.rollback()
+                            log.exception("  Error: %s", exc)
+                        time.sleep(1)
+            finally:
+                browser.close()
+    finally:
+        cur.close()
+        conn.close()
 
     log.info("All companies done.")
 

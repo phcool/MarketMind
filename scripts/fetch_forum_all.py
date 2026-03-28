@@ -8,40 +8,39 @@ Uses the JSONP CDN API endpoint:
 Multi-threading per company:
   - At start, total_pages is read from the list page HTML or API; it is stored in checkpoint.
   - WORKERS_PER_COMPANY threads compete for pages via PageDispatcher. Fetch stops when
-    either all pages are done or saved post count reaches MAX_POSTS_PER_COMPANY (10k).
+    either all pages are done or inserted row count reaches MAX_POSTS_PER_COMPANY (10k).
   - When capped at 10k, checkpoint records capped_at so the company is skipped on resume.
-  - Daily JSON files are protected by per-file locks to prevent concurrent writes.
 
-Storage: A股重点板块/<sector>/<company>/forum/<YYYY>/<MM>/<DD>.json
-Each file is a JSON array deduped by post_id (int-normalised).
+Storage: PostgreSQL table `comments` (dedup by url via ON CONFLICT DO NOTHING).
+Connection: PG_DSN env or default dbname=financial_data.
 
-Checkpoint: progress is saved to checkpoint/fetch_forum_checkpoint.json. Each
-company records the list of completed page numbers so that on re-run we resume
-from the next unprocessed page. Use --add to ignore checkpoint and re-fetch
-from page 1 for all companies (existing data is merged, not cleared).
+Checkpoint: checkpoint/fetch_forum_checkpoint.json — completed page numbers per company.
+Use --add to ignore checkpoint and re-fetch from page 1 for all companies.
 """
 
 import argparse
 import json
 import math
+import os
 import re
 import threading
 import time
 import logging
-from collections import defaultdict
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, wait
 
+import psycopg2
 import requests
 from bs4 import BeautifulSoup
+from psycopg2.extras import execute_values
 
 # ── configuration ────────────────────────────────────────────────────────────
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-BASE_DIR = ROOT_DIR / "A股重点板块"
 CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
 CHECKPOINT_FILE = CHECKPOINT_DIR / "fetch_forum_checkpoint.json"
+DSN = os.environ.get("PG_DSN", "dbname=financial_data")
 
 API_URL       = "https://gbcdn.dfcfw.com/gbapi/webarticlelist_api_Article_Articlelist.js"
 LIST_PAGE_URL = "https://guba.eastmoney.com/list,{symbol}.html"  # for parsing total pages
@@ -50,8 +49,8 @@ WORKERS_PER_COMPANY = 4    # concurrent threads per company
 REQUEST_DELAY      = 1.5   # seconds each thread sleeps between page fetches
 TIMEOUT            = 20
 MAX_RETRIES        = 3
-MAX_POSTS_PER_COMPANY = 10_000  # stop fetching this stock once we have saved this many posts
-MAX_ZERO_SAVE_STREAK = 20       # stop stock if 20 consecutive pages have data but save 0
+MAX_POSTS_PER_COMPANY = 10_000  # stop fetching this stock once we have inserted this many new rows
+MAX_ZERO_SAVE_STREAK = 20       # stop stock if 20 consecutive pages have data but DB inserts 0 new
 
 HEADERS = {
     "User-Agent": (
@@ -99,18 +98,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── per-file write locks (prevents concurrent read-modify-write on same file) ─
-
-_file_locks: dict[Path, threading.Lock] = {}
-_file_locks_meta = threading.Lock()
-
-
-def _get_file_lock(path: Path) -> threading.Lock:
-    with _file_locks_meta:
-        if path not in _file_locks:
-            _file_locks[path] = threading.Lock()
-        return _file_locks[path]
-
+SQL_INSERT_COMMENTS = """
+    INSERT INTO comments (url, post_id, symbol, post_title, publish_time, click_count, comment_count)
+    VALUES %s
+    ON CONFLICT (url) DO NOTHING
+"""
 
 # ── checkpoint (per-company: total_pages + completed) ─────────────────────────
 # Value: int N (all 1..N done), or dict {"total_pages": N, "completed": list | int}.
@@ -362,78 +354,50 @@ def parse_posts(raw_list: list[dict]) -> tuple[list[dict], bool]:
     return posts, True
 
 
-# ── thread-safe file write ────────────────────────────────────────────────────
-
-def save_posts(posts: list[dict], company_dir: Path) -> int:
-    """
-    Group posts by publish date, acquire per-file lock, then merge + write.
-    Returns total number of new entries actually written.
-    """
-    by_date: dict[date, list[dict]] = defaultdict(list)
+def posts_to_comment_rows(posts: list[dict], symbol: str) -> list[tuple]:
+    rows: list[tuple] = []
     for p in posts:
-        try:
-            d = datetime.strptime(p["post_publish_time"], "%Y-%m-%d %H:%M:%S").date()
-        except (ValueError, KeyError):
+        url = (p.get("url") or "").strip()
+        if not url:
             continue
-        by_date[d].append(p)
+        pid = p.get("post_id")
+        post_id_s = str(pid).strip() if pid is not None and str(pid).strip() else None
+        title = (p.get("post_title") or "").strip()
+        ts = p.get("post_publish_time")
+        try:
+            pub = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            continue
+        clicks = p.get("post_click_count")
+        ccount = p.get("post_comment_count")
+        rows.append((url, post_id_s, symbol, title, pub, clicks, ccount))
+    return rows
 
-    total_new = 0
-    for day, day_posts in by_date.items():
-        out_dir  = company_dir / "forum" / str(day.year) / f"{day.month:02d}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"{day.day:02d}.json"
 
-        with _get_file_lock(out_file):
-            existing: list[dict] = []
-            if out_file.exists():
-                try:
-                    existing = json.loads(out_file.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError):
-                    existing = []
-
-            seen_ids: set[int] = set()
-            for p in existing:
-                raw_id = p.get("post_id")
-                if raw_id is not None:
-                    try:
-                        seen_ids.add(int(raw_id))
-                    except (ValueError, TypeError):
-                        pass
-
-            new_entries: list[dict] = []
-            for p in day_posts:
-                raw_id = p.get("post_id")
-                if raw_id is None:
-                    continue
-                try:
-                    pid = int(raw_id)
-                except (ValueError, TypeError):
-                    continue
-                if pid not in seen_ids:
-                    seen_ids.add(pid)
-                    new_entries.append(p)
-
-            if not new_entries:
-                continue
-
-            merged = existing + new_entries
-            out_file.write_text(
-                json.dumps(merged, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            total_new += len(new_entries)
-
-    return total_new
+def insert_comments(cur, symbol: str, posts: list[dict]) -> int:
+    """Insert posts; duplicates skipped by DB. Returns count of newly inserted rows."""
+    rows = posts_to_comment_rows(posts, symbol)
+    if not rows:
+        return 0
+    execute_values(cur, SQL_INSERT_COMMENTS, rows)
+    n = cur.rowcount
+    return n if n is not None and n >= 0 else 0
 
 
 # ── worker function (runs in a thread) ───────────────────────────────────────
 
-def _worker(symbol: str, company_dir: Path, company_key: str,
-            dispatcher: PageDispatcher,
-            saved_counter: list[int],
-            zero_save_streak: list[int],
-            counter_lock: threading.Lock,
-            total_pages: int) -> None:
+def _worker(
+    symbol: str,
+    company_key: str,
+    conn,
+    cur,
+    db_lock: threading.Lock,
+    dispatcher: PageDispatcher,
+    saved_counter: list[int],
+    zero_save_streak: list[int],
+    counter_lock: threading.Lock,
+    total_pages: int,
+) -> None:
     session = requests.Session()
     session.headers.update(HEADERS)
 
@@ -451,7 +415,11 @@ def _worker(symbol: str, company_dir: Path, company_key: str,
         raw_posts = data.get("re") or []
         posts, _ = parse_posts(raw_posts)
 
-        n = save_posts(posts, company_dir) if posts else 0
+        n = 0
+        if posts:
+            with db_lock:
+                n = insert_comments(cur, symbol, posts)
+                conn.commit()
         with counter_lock:
             saved_counter[0] += n
             total_saved = saved_counter[0]
@@ -463,7 +431,7 @@ def _worker(symbol: str, company_dir: Path, company_key: str,
 
         dispatcher.mark_completed(page, company_key)
         log.info(
-            "page %4d / %d | in-range %3d | saved %3d (total %d) | zero-save-streak %d",
+            "page %4d / %d | in-range %3d | new_rows %3d (total %d) | zero-insert-streak %d",
             page, total_pages, len(posts), n, total_saved, streak_now,
         )
         if total_saved >= MAX_POSTS_PER_COMPANY:
@@ -483,15 +451,9 @@ def _worker(symbol: str, company_dir: Path, company_key: str,
 
 # ── per-company orchestrator ──────────────────────────────────────────────────
 
-def folder_name(name: str, symbol: str, market: str) -> str:
-    suffix = f"{symbol}.HK" if market == "hk" else symbol
-    return f"{name}({suffix})"
-
-
 def fetch_company(name: str, symbol: str, market: str, sector: str,
                   use_checkpoint: bool) -> None:
     company_key    = _company_key(sector, name, symbol, market)
-    company_dir    = BASE_DIR / sector / folder_name(name, symbol, market)
     initial_done, checkpoint_total = load_checkpoint(company_key, use_checkpoint)
     total_pages    = checkpoint_total if checkpoint_total is not None else get_total_pages(symbol)
     log.info("━━ %s (%s) — total %d pages ━━", name, symbol, total_pages)
@@ -513,22 +475,39 @@ def fetch_company(name: str, symbol: str, market: str, sector: str,
         max_posts_cap=MAX_POSTS_PER_COMPANY,
     )
     counter_lock = threading.Lock()
+    db_lock = threading.Lock()
 
-    with ThreadPoolExecutor(
-        max_workers=WORKERS_PER_COMPANY,
-        thread_name_prefix=f"{symbol}",
-    ) as executor:
-        futures = [
-            executor.submit(
-                _worker, symbol, company_dir, company_key,
-                dispatcher, saved_counter, zero_save_streak, counter_lock, total_pages,
-            )
-            for _ in range(WORKERS_PER_COMPANY)
-        ]
-        wait(futures)
-        for f in futures:
-            if f.exception():
-                log.error("Worker raised: %s", f.exception())
+    conn = psycopg2.connect(DSN)
+    conn.autocommit = False
+    cur = conn.cursor()
+    try:
+        with ThreadPoolExecutor(
+            max_workers=WORKERS_PER_COMPANY,
+            thread_name_prefix=f"{symbol}",
+        ) as executor:
+            futures = [
+                executor.submit(
+                    _worker,
+                    symbol,
+                    company_key,
+                    conn,
+                    cur,
+                    db_lock,
+                    dispatcher,
+                    saved_counter,
+                    zero_save_streak,
+                    counter_lock,
+                    total_pages,
+                )
+                for _ in range(WORKERS_PER_COMPANY)
+            ]
+            wait(futures)
+            for f in futures:
+                if f.exception():
+                    log.error("Worker raised: %s", f.exception())
+    finally:
+        cur.close()
+        conn.close()
 
     total_saved = saved_counter[0]
     with dispatcher._lock:
@@ -545,29 +524,29 @@ def fetch_company(name: str, symbol: str, market: str, sector: str,
                 "capped_at": MAX_POSTS_PER_COMPANY,
             }
             _write_checkpoint_file()
-        log.info("━━ %s done — %d posts saved (capped at %d) ━━\n", name, total_saved, MAX_POSTS_PER_COMPANY)
+        log.info("━━ %s done — %d new rows inserted (capped at %d) ━━\n", name, total_saved, MAX_POSTS_PER_COMPANY)
     elif stop_reason:
         # Treat as finished: persist compact int form so future runs skip this stock.
         with _checkpoint_lock:
             _checkpoint_data[company_key] = total_pages
             _write_checkpoint_file()
         log.info("  stop reason: %s", stop_reason)
-        log.info("━━ %s done — %d posts saved (marked finished by stop rule) ━━\n", name, total_saved)
+        log.info("━━ %s done — %d new rows (marked finished by stop rule) ━━\n", name, total_saved)
     else:
         finalize_company_checkpoint(company_key, dispatcher)
-        log.info("━━ %s done — %d posts saved ━━\n", name, total_saved)
+        log.info("━━ %s done — %d new rows inserted ━━\n", name, total_saved)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch East Money stock bar posts. Use --add to re-fetch from page 1 (merge new content).",
+        description="Fetch East Money stock bar posts into PostgreSQL. Use --add to re-fetch from page 1.",
     )
     parser.add_argument(
         "--add",
         action="store_true",
-        help="Ignore checkpoint and re-fetch all companies from page 1; existing data is merged, not cleared.",
+        help="Ignore checkpoint and re-fetch all companies from page 1; DB skips duplicate urls.",
     )
     parser.add_argument(
         "--offset",
@@ -580,7 +559,7 @@ def main() -> None:
 
     if args.add:
         reset_checkpoint_for_run()
-        log.info("--add: checkpoint reset, will fetch from page 1 for all companies")
+        log.info("--add: checkpoint reset, will fetch from page 1 for all companies (DB dedup by url)")
     else:
         load_all_checkpoints(use_checkpoint=True)
         if _checkpoint_data:
