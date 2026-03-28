@@ -9,9 +9,9 @@ downcast_bf16: "no"
 enable_cpu_affinity: false
 machine_rank: 0
 main_training_function: main
-mixed_precision: bf16
+# mixed_precision omitted: incompatible with deepspeed_config_file in this Accelerate version (bf16 is in ds_zero3.json).
 num_machines: 1
-num_processes: 8
+num_processes: 4
 rdzv_backend: static
 same_network: true
 tpu_env: []

@@ -102,8 +102,13 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--learning_rate", type=float, default=1e-6)
     p.add_argument("--per_device_train_batch_size", type=int, default=1)
     p.add_argument("--gradient_accumulation_steps", type=int, default=4)
-    p.add_argument("--num_generations", type=int, default=4, help="GRPO group size G.")
-    p.add_argument("--max_prompt_length", type=int, default=6144)
+    p.add_argument("--num_generations", type=int, default=8, help="GRPO group size G.")
+    p.add_argument(
+        "--max_prompt_length",
+        type=int,
+        default=6144,
+        help="Left-truncate templated prompts to this many tokens; also sets vLLM context to max_prompt+completion.",
+    )
     p.add_argument("--max_completion_length", type=int, default=128)
     p.add_argument("--logging_steps", type=int, default=10)
     p.add_argument("--save_steps", type=int, default=200)
@@ -172,6 +177,12 @@ def main() -> None:
             tokenize=False,
             add_generation_prompt=True,
         )
+        # TRL >= 0.29 removed GRPOConfig.max_prompt_length; truncate here for both vLLM and HF generate.
+        prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
+        max_pl = args.max_prompt_length
+        if len(prompt_ids) > max_pl:
+            prompt_ids = prompt_ids[-max_pl:]
+            prompt = tokenizer.decode(prompt_ids, skip_special_tokens=False)
         return {
             "prompt": prompt,
             "pct_change": float(example["pct_change"]),
@@ -200,7 +211,6 @@ def main() -> None:
         gradient_checkpointing=True,
         remove_unused_columns=False,
         beta=args.beta,
-        max_prompt_length=args.max_prompt_length,
         max_completion_length=args.max_completion_length,
         num_generations=args.num_generations,
         report_to=report_to_val,
@@ -217,6 +227,7 @@ def main() -> None:
         training_kwargs["vllm_mode"] = args.vllm_mode
         training_kwargs["vllm_gpu_memory_utilization"] = args.vllm_gpu_memory_utilization
         training_kwargs["vllm_tensor_parallel_size"] = args.vllm_tensor_parallel_size
+        training_kwargs["vllm_max_model_length"] = args.max_prompt_length + args.max_completion_length
         if args.vllm_mode == "server":
             if args.vllm_server_base_url.strip():
                 training_kwargs["vllm_server_base_url"] = args.vllm_server_base_url.strip()
