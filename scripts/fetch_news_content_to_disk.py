@@ -1,7 +1,8 @@
 """
 Fetch full news article body from East Money HTML (div#ContentBody) for selected stocks.
 
-Reads URLs from PostgreSQL `news` (no DB writes). Saves text under:
+Reads URLs from UTF-8 CSV (default: exports/news.csv from export_pg_tables_to_csv.py).
+Saves text under:
   Content/news/{YYYY-MM}/{sha256(url).hex}.txt
 
 File format (same idea as report cache):
@@ -14,20 +15,19 @@ File format (same idea as report cache):
 
 Resume: skips rows whose output file already exists and has non-empty body after '---'.
 
-Requires: requests, beautifulsoup4, psycopg2; DB: PG_DSN or dbname=financial_data.
+Requires: requests, beautifulsoup4.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import logging
-import os
 import time
 from datetime import date
 from pathlib import Path
 
-import psycopg2
 import requests
 from bs4 import BeautifulSoup
 
@@ -35,7 +35,7 @@ from stock_universe import all_symbols, load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 CONTENT_NEWS_DIR = ROOT_DIR / "Content" / "news"
-DSN = os.environ.get("PG_DSN", "dbname=financial_data")
+DEFAULT_NEWS_CSV = ROOT_DIR / "exports" / "news.csv"
 
 DEFAULT_SECTOR = "电力设备与新能源"
 DEFAULT_SINCE = date(2025, 11, 1)
@@ -116,29 +116,44 @@ def build_file_content(
     )
 
 
-def load_rows(
-    cur,
-    symbols: list[str],
+def _parse_news_date(s: str) -> date | None:
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except ValueError:
+        return None
+
+
+def load_rows_from_csv(
+    csv_path: Path,
+    symbols: set[str],
     since: date,
 ) -> list[tuple[str, str, str, date]]:
-    cur.execute(
-        """
-        SELECT url, symbol, title, date
-        FROM news
-        WHERE symbol = ANY(%s)
-          AND date >= %s
-        ORDER BY date ASC NULLS LAST, url ASC
-        """,
-        (symbols, since),
-    )
+    if not csv_path.is_file():
+        raise SystemExit(f"CSV not found: {csv_path}")
+    required = {"url", "symbol", "title", "date"}
     out: list[tuple[str, str, str, date]] = []
-    for row in cur.fetchall():
-        url, sym, title, d = row
-        if not url or not sym:
-            continue
-        if d is None:
-            continue
-        out.append((str(url).strip(), str(sym), str(title or ""), d))
+    with csv_path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+            raise SystemExit(
+                f"CSV {csv_path} must have columns {sorted(required)}; got {reader.fieldnames}"
+            )
+        for row in reader:
+            url = (row.get("url") or "").strip()
+            sym = (row.get("symbol") or "").strip()
+            title = row.get("title") or ""
+            d = _parse_news_date(row.get("date") or "")
+            if not url or not sym or d is None:
+                continue
+            if sym not in symbols:
+                continue
+            if d < since:
+                continue
+            out.append((url, sym, str(title), d))
+    out.sort(key=lambda r: (r[3], r[0]))
     return out
 
 
@@ -171,6 +186,12 @@ def main() -> None:
         default="",
         help="Comma-separated symbols; if set, overrides --sector (ignored with --all).",
     )
+    ap.add_argument(
+        "--csv",
+        type=Path,
+        default=DEFAULT_NEWS_CSV,
+        help=f"news CSV path (default: {DEFAULT_NEWS_CSV})",
+    )
     ap.add_argument("--delay", type=float, default=1.0, help="Seconds between HTTP requests.")
     ap.add_argument("--timeout", type=float, default=30.0, help="Per-request timeout seconds.")
     ap.add_argument(
@@ -194,11 +215,8 @@ def main() -> None:
 
     CONTENT_NEWS_DIR.mkdir(parents=True, exist_ok=True)
 
-    conn = psycopg2.connect(DSN)
-    cur = conn.cursor()
-    rows = load_rows(cur, symbols, since)
-    cur.close()
-    conn.close()
+    csv_path = args.csv.resolve()
+    rows = load_rows_from_csv(csv_path, set(symbols), since)
 
     log.info("Loaded %d news rows (symbols=%s, since=%s)", len(rows), symbols, since)
 

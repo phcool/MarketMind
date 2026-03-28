@@ -12,26 +12,27 @@ Save format matches stock_daily_dashboard._write_report_cache_file:
 
 File path: Content/report/{sha256(url)}.txt (same as dashboard cache — no DB writes).
 
+Data source: UTF-8 CSV (default exports/report.csv), e.g. from export_pg_tables_to_csv.py.
+
 Resume: skip if file exists and body after '---' is non-empty.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date
 from pathlib import Path
-
-import psycopg2
 
 from fetch_report_content import worker as fetch_report_worker
 from stock_universe import all_symbols, load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 REPORT_CACHE_DIR = ROOT_DIR / "Content" / "report"
-DSN = os.environ.get("PG_DSN", "dbname=financial_data")
+DEFAULT_REPORT_CSV = ROOT_DIR / "exports" / "report.csv"
 
 DEFAULT_SECTOR = "电力设备与新能源"
 ALL_SINCE = "2025-01-01"  # --all: minimum report.date unless --since given
@@ -76,37 +77,53 @@ def symbols_for_sector(sector: str) -> list[str]:
     return [t[1] for t in sectors[sector]]
 
 
-def load_report_rows(
-    cur,
-    symbols: list[str],
+def _parse_report_date(s: str) -> date | None:
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except ValueError:
+        return None
+
+
+def _report_sort_key(t: tuple[str, str, object]) -> tuple:
+    url, _title, d = t
+    if d is None:
+        return (1, url)
+    return (0, d, url)
+
+
+def load_report_rows_from_csv(
+    csv_path: Path,
+    symbols: set[str],
     since: str | None,
 ) -> list[tuple[str, str, object]]:
-    if since:
-        cur.execute(
-            """
-            SELECT url, title, date
-            FROM report
-            WHERE symbol = ANY(%s)
-              AND date >= %s::date
-            ORDER BY date NULLS LAST, url ASC
-            """,
-            (symbols, since),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT url, title, date
-            FROM report
-            WHERE symbol = ANY(%s)
-            ORDER BY date NULLS LAST, url ASC
-            """,
-            (symbols,),
-        )
-    rows = []
-    for url, title, d in cur.fetchall():
-        if not url:
-            continue
-        rows.append((str(url).strip(), str(title or ""), d))
+    if not csv_path.is_file():
+        raise SystemExit(f"CSV not found: {csv_path}")
+    since_d = date.fromisoformat(since[:10]) if since else None
+    required = {"url", "symbol", "title", "date"}
+    rows: list[tuple[str, str, object]] = []
+    with csv_path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+            raise SystemExit(
+                f"CSV {csv_path} must have columns {sorted(required)}; got {reader.fieldnames}"
+            )
+        for row in reader:
+            url = (row.get("url") or "").strip()
+            sym = (row.get("symbol") or "").strip()
+            if not url or not sym:
+                continue
+            if sym not in symbols:
+                continue
+            d = _parse_report_date(row.get("date") or "")
+            if since_d is not None:
+                if d is None or d < since_d:
+                    continue
+            title = row.get("title") or ""
+            rows.append((url, str(title), d))
+    rows.sort(key=_report_sort_key)
     return rows
 
 
@@ -124,6 +141,12 @@ def main() -> None:
         action="store_true",
         help="All symbols in config (~35); report rows from 2025-01-01 onward unless --since is set.",
     )
+    ap.add_argument(
+        "--csv",
+        type=Path,
+        default=DEFAULT_REPORT_CSV,
+        help=f"report CSV path (default: {DEFAULT_REPORT_CSV})",
+    )
     ap.add_argument("--workers", type=int, default=1, help="Concurrent fetches (default 1 for rate limits).")
     ap.add_argument("--force", action="store_true", help="Re-fetch even when cache file has body.")
     ap.add_argument("--dry-run", action="store_true", help="List rows only.")
@@ -140,11 +163,8 @@ def main() -> None:
         symbols = symbols_for_sector(args.sector)
         since = since_s or None
 
-    conn = psycopg2.connect(DSN)
-    cur = conn.cursor()
-    rows = load_report_rows(cur, symbols, since)
-    cur.close()
-    conn.close()
+    csv_path = args.csv.resolve()
+    rows = load_report_rows_from_csv(csv_path, set(symbols), since)
 
     log.info("Loaded %d report rows (symbols=%s, since=%s)", len(rows), symbols, since or "—")
 
