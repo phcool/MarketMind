@@ -21,6 +21,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 from quotes_db import BATCH, DSN, SQL_UPSERT, dataframe_to_quote_rows, ensure_table
+from stock_universe import load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
@@ -29,57 +30,7 @@ CHECKPOINT_FILE = CHECKPOINT_DIR / "fetch_stocks_checkpoint.json"
 DEFAULT_START_DATE = "20250101"  # used only when no checkpoint entry exists
 END_DATE = date.today().strftime("%Y%m%d")
 
-SECTORS: dict[str, list[tuple[str, str, str]]] = {
-    "电力设备与新能源": [
-        ("宁德时代", "300750", "a"),
-        ("亿纬锂能", "300014", "a"),
-        ("阳光电源", "300274", "a"),
-        ("隆基绿能", "601012", "a"),
-        ("比亚迪", "002594", "a"),
-    ],
-    "医药生物": [
-        ("恒瑞医药", "600276", "a"),
-        ("药明康德", "603259", "a"),
-        ("复星医药", "600196", "a"),
-        ("迈瑞医疗", "300760", "a"),
-        ("云南白药", "000538", "a"),
-    ],
-    "银行": [
-        ("招商银行", "600036", "a"),
-        ("工商银行", "601398", "a"),
-        ("平安银行", "000001", "a"),
-        ("建设银行", "601939", "a"),
-        ("兴业银行", "601166", "a"),
-    ],
-    "半导体与电子": [
-        ("中微公司", "688012", "a"),
-        ("北方华创", "002371", "a"),
-        ("华虹半导体", "688347", "a"),
-        ("韦尔股份", "603501", "a"),
-        ("兆易创新", "603986", "a"),
-    ],
-    "食品饮料（白酒）": [
-        ("贵州茅台", "600519", "a"),
-        ("五粮液", "000858", "a"),
-        ("泸州老窖", "000568", "a"),
-        ("洋河股份", "002646", "a"),
-        ("山西汾酒", "600809", "a"),
-    ],
-    "汽车": [
-        ("上汽集团", "600104", "a"),
-        ("长城汽车", "601633", "a"),
-        ("吉利汽车", "00175", "hk"),
-        ("广汽集团", "601238", "a"),
-        ("江淮汽车", "600418", "a"),
-    ],
-    "非银金融（券商）": [
-        ("中信证券", "600030", "a"),
-        ("东方财富", "300059", "a"),
-        ("国泰君安", "601211", "a"),
-        ("华泰证券", "601688", "a"),
-        ("广发证券", "000776", "a"),
-    ],
-}
+SECTORS = load_sectors()
 
 
 def load_checkpoint() -> dict[str, str]:

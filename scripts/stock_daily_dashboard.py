@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 from datetime import date
 from pathlib import Path
 
@@ -13,9 +12,9 @@ import pandas as pd
 from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
 from fetch_report_content import fetch_report_plaintext
+from stock_universe import load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-BASE_DIR = ROOT_DIR / "A股重点板块"
 REPORT_CACHE_DIR = ROOT_DIR / "Content" / "report"
 DSN = "dbname=financial_data"
 MAX_REPORT_BODY_CHARS = 8000
@@ -28,21 +27,11 @@ app = Flask(__name__)
 
 
 def discover_stocks() -> list[dict]:
-    """Discover stocks from folder names like: 恒瑞医药(600276), 吉利汽车(00175.HK)."""
+    """Build picker entries from config/stocks.json (A-share 6-digit only for this UI)."""
     stocks: list[dict] = []
-    pattern = re.compile(r"^(?P<name>.+)\((?P<code>[^)]+)\)$")
-
-    for sector_dir in sorted(BASE_DIR.iterdir()):
-        if not sector_dir.is_dir():
-            continue
-        for stock_dir in sorted(sector_dir.iterdir()):
-            if not stock_dir.is_dir():
-                continue
-            m = pattern.match(stock_dir.name)
-            if not m:
-                continue
-            name = m.group("name")
-            code_text = m.group("code")
+    for sector, companies in sorted(load_sectors().items()):
+        for name, symbol, market in companies:
+            code_text = f"{symbol}.HK" if market == "hk" else symbol
             code_digits = code_text.split(".")[0]
             if not (len(code_digits) == 6 and code_digits.isdigit()):
                 continue
@@ -52,7 +41,7 @@ def discover_stocks() -> list[dict]:
                     "name": name,
                     "code_text": code_text,
                     "symbol": code_digits,
-                    "sector": sector_dir.name,
+                    "sector": sector,
                 }
             )
 
@@ -292,7 +281,7 @@ def build_news_summary_prompt(stock_name: str, day_str: str, news_rows: list[tup
         f"股票：{stock_name}\n"
         f"日期：{day_str}\n"
         f"以下为当日新闻标题列表（数据库共{len(news_rows)}条，下列含标题共{n_listed}条）。"
-        "每行前缀 news_id 为序号，便于你在正文中引用（如「见 news_id=3」），不得编造表中不存在的 news_id。\n"
+        "每行前缀 news_id 为序号，不得编造表中不存在的 news_id。\n"
         f"{news_text}\n\n"
         "请用中文输出对当日新闻的**综合总结**（可用 markdown 小标题分段），至少包含：\n"
         "1) 主要信息主题与逻辑主线；\n"

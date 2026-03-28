@@ -1,7 +1,7 @@
 """
 Unified entry: fetch comments (forum), news (eastmoney search), and/or report (sina) into PostgreSQL.
 
-Reuses logic from fetch_forum_all.py and fetch_news_eastmoney.py; injects one shared SECTORS list.
+Reuses logic from fetch_forum_all.py and fetch_news_eastmoney.py; injects SECTORS from config/stocks.json.
 
 Examples:
   python scripts/fetch_market_data.py --mode all
@@ -24,58 +24,10 @@ import fetch_forum_all as forum
 import fetch_news_eastmoney as nem
 from playwright.sync_api import sync_playwright
 
-# Single source of truth for which stocks to process (injected into both submodules).
-SECTORS: dict[str, list[tuple[str, str, str]]] = {
-    "电力设备与新能源": [
-        ("宁德时代", "300750", "a"),
-        ("亿纬锂能", "300014", "a"),
-        ("阳光电源", "300274", "a"),
-        ("隆基绿能", "601012", "a"),
-        ("比亚迪", "002594", "a"),
-    ],
-    "医药生物": [
-        ("恒瑞医药", "600276", "a"),
-        ("药明康德", "603259", "a"),
-        ("复星医药", "600196", "a"),
-        ("迈瑞医疗", "300760", "a"),
-        ("云南白药", "000538", "a"),
-    ],
-    "银行": [
-        ("招商银行", "600036", "a"),
-        ("工商银行", "601398", "a"),
-        ("平安银行", "000001", "a"),
-        ("建设银行", "601939", "a"),
-        ("兴业银行", "601166", "a"),
-    ],
-    "半导体与电子": [
-        ("中微公司", "688012", "a"),
-        ("北方华创", "002371", "a"),
-        ("华虹半导体", "688347", "a"),
-        ("韦尔股份", "603501", "a"),
-        ("兆易创新", "603986", "a"),
-    ],
-    "食品饮料（白酒）": [
-        ("贵州茅台", "600519", "a"),
-        ("五粮液", "000858", "a"),
-        ("泸州老窖", "000568", "a"),
-        ("洋河股份", "002646", "a"),
-        ("山西汾酒", "600809", "a"),
-    ],
-    "汽车": [
-        ("上汽集团", "600104", "a"),
-        ("长城汽车", "601633", "a"),
-        ("吉利汽车", "00175", "hk"),
-        ("广汽集团", "601238", "a"),
-        ("江淮汽车", "600418", "a"),
-    ],
-    "非银金融（券商）": [
-        ("中信证券", "600030", "a"),
-        ("东方财富", "300059", "a"),
-        ("国泰君安", "601211", "a"),
-        ("华泰证券", "601688", "a"),
-        ("广发证券", "000776", "a"),
-    ],
-}
+from stock_universe import load_sectors
+
+# Injected into both submodules (same as their default from config/stocks.json).
+SECTORS = load_sectors()
 
 log = logging.getLogger(__name__)
 

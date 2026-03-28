@@ -1,5 +1,5 @@
 """
-Fetch all East Money stock bar (股吧) posts for every company in A股重点板块.
+Fetch all East Money stock bar (股吧) posts for every company in config/stocks.json.
 
 Uses the JSONP CDN API endpoint:
   https://gbcdn.dfcfw.com/gbapi/webarticlelist_api_Article_Articlelist.js
@@ -34,6 +34,8 @@ import psycopg2
 import requests
 from bs4 import BeautifulSoup
 from psycopg2.extras import execute_values
+
+from stock_universe import load_sectors
 
 # ── configuration ────────────────────────────────────────────────────────────
 
@@ -77,17 +79,7 @@ KEEP_FIELDS = [
     "art_unique_url",
 ]
 
-# ── company list ─────────────────────────────────────────────────────────────
-
-SECTORS: dict[str, list[tuple[str, str, str]]] = {
-    "电力设备与新能源": [
-        ("宁德时代", "300750", "a"),
-        ("亿纬锂能", "300014", "a"),
-        ("阳光电源", "300274", "a"),
-        ("隆基绿能", "601012", "a"),
-        ("比亚迪",   "002594", "a"),
-    ],
-}
+SECTORS = load_sectors()
 
 # ── logging ───────────────────────────────────────────────────────────────────
 
