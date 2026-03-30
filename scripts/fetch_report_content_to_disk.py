@@ -14,7 +14,11 @@ File path: Content/report/{sha256(url)}.txt (same as dashboard cache — no DB w
 
 Data source: UTF-8 CSV (default exports/report.csv), e.g. from export_pg_tables_to_csv.py.
 
-Resume: skip if file exists and body after '---' is non-empty.
+Resume: skip if file exists and body after '---' is non-empty, or the same URL already has
+non-empty body on disk under Content/report/ (full scan). HTTP 429/456/503 retry with backoff
+and --rate-limit-extra-delay (see fetch_report_content).
+
+Writes checkpoint/fetch_report_content_disk.json when the run finishes.
 """
 
 from __future__ import annotations
@@ -22,9 +26,10 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fetch_report_content import fetch_report_worker_disk
@@ -32,6 +37,8 @@ from stock_universe import all_symbols, load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 REPORT_CACHE_DIR = ROOT_DIR / "Content" / "report"
+CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
+REPORT_FETCH_CHECKPOINT_JSON = CHECKPOINT_DIR / "fetch_report_content_disk.json"
 DEFAULT_REPORT_CSV = ROOT_DIR / "exports" / "report.csv"
 
 DEFAULT_SECTOR = "电力设备与新能源"
@@ -50,6 +57,27 @@ def report_cache_path(url: str) -> Path:
     return REPORT_CACHE_DIR / f"{key}.txt"
 
 
+def scan_existing_report_urls(cache_dir: Path) -> set[str]:
+    """Collect URL= values from existing cache files (skip work already on disk)."""
+    out: set[str] = set()
+    if not cache_dir.is_dir():
+        return out
+    for p in cache_dir.glob("*.txt"):
+        try:
+            with p.open(encoding="utf-8", errors="replace") as f:
+                for _ in range(20):
+                    line = f.readline()
+                    if not line:
+                        break
+                    s = line.strip()
+                    if s.startswith("URL="):
+                        out.add(s[4:].strip())
+                        break
+        except OSError:
+            continue
+    return out
+
+
 def cached_body_nonempty(path: Path) -> bool:
     if not path.is_file():
         return False
@@ -61,6 +89,29 @@ def cached_body_nonempty(path: Path) -> bool:
         return False
     _, _, body = raw.partition("\n---\n")
     return bool(body.strip())
+
+
+def scan_nonempty_report_urls(cache_dir: Path) -> set[str]:
+    """URLs that already have a non-empty body under cache_dir (same rule as cached_body_nonempty)."""
+    out: set[str] = set()
+    if not cache_dir.is_dir():
+        return out
+    for p in cache_dir.glob("*.txt"):
+        if not cached_body_nonempty(p):
+            continue
+        try:
+            with p.open(encoding="utf-8", errors="replace") as f:
+                for _ in range(20):
+                    line = f.readline()
+                    if not line:
+                        break
+                    s = line.strip()
+                    if s.startswith("URL="):
+                        out.add(s[4:].strip())
+                        break
+        except OSError:
+            continue
+    return out
 
 
 def write_report_cache(path: Path, page_url: str, title: str, report_date, body: str) -> None:
@@ -167,6 +218,12 @@ def main() -> None:
         help="Max HTTP attempts per URL (exponential backoff between failures).",
     )
     ap.add_argument("--timeout", type=float, default=20.0, help="Per-request timeout seconds.")
+    ap.add_argument(
+        "--rate-limit-extra-delay",
+        type=float,
+        default=20.0,
+        help="Extra seconds after 429/456/503 before retry (on top of exponential backoff).",
+    )
     ap.add_argument("--force", action="store_true", help="Re-fetch even when cache file has body.")
     ap.add_argument("--dry-run", action="store_true", help="List rows only.")
     args = ap.parse_args()

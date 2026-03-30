@@ -41,6 +41,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+RETRYABLE_CLIENT_HTTP = frozenset({403, 408, 425, 429, 456})
+
 # ── HTML parsing ──────────────────────────────────────────────────────────────
 
 def parse_content(html: str) -> str:
@@ -103,6 +105,9 @@ def fetch_url(session: requests.Session, url: str) -> str | None:
     return None
 
 
+DEFAULT_HTTP_THROTTLE_CODES = frozenset({503})
+
+
 def fetch_url_with_backoff(
     session: requests.Session,
     url: str,
@@ -110,19 +115,43 @@ def fetch_url_with_backoff(
     timeout: float,
     retry_base: float,
     max_attempts: int,
+    rate_limit_codes: frozenset[int] | None = None,
+    rate_limit_extra_delay: float = 0.0,
 ) -> str | None:
     """
     Like fetch_url but with exponential backoff between transient failures.
     Sleep before retry k: retry_base * 2^(k-1). Returns '' on 4xx or empty parse after
     all attempts; None if only transient errors and attempts exhausted.
+
+    If rate_limit_codes is None, 503 is throttled (wait + retry). Retryable 4xx
+    (403, 408, 425, 429, 456) use backoff with extra delay. Pass an explicit
+    frozenset() to disable 503 throttling only.
     """
+    throttle = DEFAULT_HTTP_THROTTLE_CODES if rate_limit_codes is None else rate_limit_codes
     empty_after_200 = False
     for attempt in range(1, max_attempts + 1):
         try:
             resp = session.get(url, timeout=timeout)
-            if 400 <= resp.status_code < 500:
-                log.warning("  HTTP %d (skip) %s", resp.status_code, url)
-                return ""
+            code = resp.status_code
+            if code in throttle:
+                log.warning("  HTTP %d (throttle) %s", code, url[:100])
+                if attempt < max_attempts:
+                    wait = retry_base * (2 ** (attempt - 1)) + rate_limit_extra_delay
+                    log.info("  throttle wait %.1fs then retry", wait)
+                    time.sleep(wait)
+                continue
+            if 400 <= code < 500:
+                if code in RETRYABLE_CLIENT_HTTP:
+                    log.warning("  HTTP %d (retryable client) %s", code, url[:100])
+                    if attempt < max_attempts:
+                        extra = 45.0 if code == 456 else 10.0
+                        wait = retry_base * (2 ** (attempt - 1)) + extra
+                        log.info("  retryable 4xx wait %.1fs then retry", wait)
+                        time.sleep(wait)
+                        continue
+                else:
+                    log.warning("  HTTP %d (skip) %s", code, url)
+                    return ""
             resp.raise_for_status()
             resp.encoding = "gb2312"
             text = parse_content(resp.text)
@@ -132,6 +161,13 @@ def fetch_url_with_backoff(
             log.warning("  [%d/%d] empty parse %s", attempt, max_attempts, url[:80])
         except requests.HTTPError as exc:
             code = exc.response.status_code if exc.response is not None else None
+            if code is not None and code in throttle:
+                log.warning("  HTTP %d (throttle, from error) %s", code, url[:80])
+                if attempt < max_attempts:
+                    wait = retry_base * (2 ** (attempt - 1)) + rate_limit_extra_delay
+                    log.info("  throttle wait %.1fs then retry", wait)
+                    time.sleep(wait)
+                continue
             if code is not None and 400 <= code < 500:
                 return ""
             log.warning("  [%d/%d] HTTP error %s — %s", attempt, max_attempts, url[:80], exc)
@@ -161,6 +197,8 @@ def fetch_report_worker_disk(
     retry_base: float,
     max_attempts: int,
     request_delay: float,
+    rate_limit_codes: frozenset[int] | None = None,
+    rate_limit_extra_delay: float = 20.0,
 ) -> tuple[str, str | None]:
     """For fetch_report_content_to_disk: backoff retries then polite delay before next task."""
     session = requests.Session()
@@ -171,6 +209,8 @@ def fetch_report_worker_disk(
         timeout=timeout,
         retry_base=retry_base,
         max_attempts=max_attempts,
+        rate_limit_codes=rate_limit_codes,
+        rate_limit_extra_delay=rate_limit_extra_delay,
     )
     time.sleep(request_delay)
     return url, content

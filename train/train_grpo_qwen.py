@@ -8,8 +8,9 @@ Launch (8 GPUs, DeepSpeed ZeRO-3 + vLLM colocate):
   cd <repo_root> && bash train/run_grpo_8gpu.sh
 
 Checkpointing: --resume_from_checkpoint auto (default) continues from the latest checkpoint-* under
-output_dir when present. With validation CSV, eval runs every --eval_steps; load_best_model_at_end uses
-eval_loss; --save_total_limit rotates checkpoints while keeping the best-by-eval-loss save.
+output_dir when present. With validation CSV, eval runs every --eval_steps on a random subset of the val
+set: default fraction is min(1, 2 * eval_steps / train_size) (e.g. 500 / 10k → 1/10); override with
+--eval_subset_ratio. load_best_model_at_end uses eval__loss (TRL GRPO metric name); --save_total_limit rotates checkpoints.
 
 Requires: pip install -r train/requirements.txt  (includes trl[vllm])
 """
@@ -20,6 +21,7 @@ import argparse
 import logging
 import math
 import os
+import random
 import re
 from pathlib import Path
 
@@ -140,6 +142,51 @@ def _map_quotes_dataset(
     return mapped
 
 
+class GRPOTrainerEvalSubset(GRPOTrainer):
+    """Each evaluate() runs on a random subset of eval_dataset for speed (same indices on all ranks)."""
+
+    def __init__(self, *args, eval_subset_ratio: float = 1.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._eval_subset_ratio = float(eval_subset_ratio)
+
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval_"):
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
+        if eval_dataset is None:
+            return super().evaluate(
+                eval_dataset=None,
+                ignore_keys=ignore_keys,
+                metric_key_prefix=metric_key_prefix,
+            )
+        r = self._eval_subset_ratio
+        if r >= 1.0:
+            return super().evaluate(
+                eval_dataset=eval_dataset,
+                ignore_keys=ignore_keys,
+                metric_key_prefix=metric_key_prefix,
+            )
+        n_total = len(eval_dataset)
+        k = max(1, min(n_total, int(math.ceil(n_total * r))))
+        step = int(self.state.global_step) if self.state is not None else 0
+        seed = (int(self.args.seed) if self.args.seed is not None else 0) * 1_000_003 + step
+        rng = random.Random(seed)
+        indices = sorted(rng.sample(range(n_total), k))
+        sub = eval_dataset.select(indices)
+        if self.is_world_process_zero():
+            _LOG.info(
+                "Eval subset %s / %s examples (ratio=%.5f, global_step=%s)",
+                k,
+                n_total,
+                r,
+                step,
+            )
+        return super().evaluate(
+            eval_dataset=sub,
+            ignore_keys=ignore_keys,
+            metric_key_prefix=metric_key_prefix,
+        )
+
+
 def _fit_per_device_eval_batch_size(world_size: int, num_generations: int, requested: int) -> int:
     """
     GRPO requires (per_device_eval_batch_size * world_size) % num_generations == 0.
@@ -155,30 +202,39 @@ def _fit_per_device_eval_batch_size(world_size: int, num_generations: int, reque
     return b
 
 
-def pct_change_exp_reward(
-    completions: list,
-    pct_change: list[float],
-    log_metric=None,
-    **kwargs,
-):
+def make_pct_change_exp_reward(exp_divisor: float):
     """
-    TRL GRPO reward: exp(-abs(pred - gt) / 100). pred from last line
-    (`pct_change_prediction: ...` or bare number).
-    Dataset column must be named `pct_change` (passed through by GRPOTrainer).
+    Reward r = exp(-abs(pred - gt) / exp_divisor). Smaller exp_divisor is equivalent
+    to a larger coefficient on |pred - gt| inside the exponent (sharper reward curve).
     """
-    rewards: list[float] = []
-    ok = 0
-    for comp, gt in zip(completions, pct_change):
-        pred = extract_pct_change_prediction(_completion_to_text(comp))
-        if pred is None:
-            rewards.append(0.0)
-            continue
-        ok += 1
-        diff = abs(pred - float(gt))
-        rewards.append(math.exp(-(diff / 100.0)))
-    if log_metric and rewards:
-        log_metric("pct_parse_success_rate", ok / len(rewards))
-    return rewards
+
+    def pct_change_exp_reward(
+        completions: list,
+        pct_change: list[float],
+        log_metric=None,
+        **kwargs,
+    ):
+        """
+        TRL GRPO reward from last line (`pct_change_prediction: ...` or bare number).
+        Dataset column must be named `pct_change` (passed through by GRPOTrainer).
+        """
+        rewards: list[float] = []
+        ok = 0
+        div = max(float(exp_divisor), 1e-12)
+        for comp, gt in zip(completions, pct_change):
+            pred = extract_pct_change_prediction(_completion_to_text(comp))
+            if pred is None:
+                rewards.append(0.0)
+                continue
+            ok += 1
+            diff = abs(pred - float(gt))
+            rewards.append(math.exp(-(diff / div)))
+        if log_metric and rewards:
+            log_metric("pct_parse_success_rate", ok / len(rewards))
+        return rewards
+
+    pct_change_exp_reward.__name__ = "pct_change_exp_reward"
+    return pct_change_exp_reward
 
 
 def build_argparser() -> argparse.ArgumentParser:
@@ -216,7 +272,14 @@ def build_argparser() -> argparse.ArgumentParser:
         "--per_device_eval_batch_size",
         type=int,
         default=1,
-        help="Must satisfy (per_device_eval_batch_size * num_GPUs) %% num_generations == 0 for GRPO eval.",
+        help="Eval batch per GPU; auto-increased if needed so (batch * WORLD_SIZE) %% num_generations == 0.",
+    )
+    p.add_argument(
+        "--eval_subset_ratio",
+        type=float,
+        default=-1.0,
+        help="Fraction of validation rows per eval (random subset, same seed on all ranks). "
+        "Default -1: auto min(1, 2*eval_steps / train_rows), e.g. 500/10k→1/10. Use 1.0 for full val each time.",
     )
     p.add_argument(
         "--output_dir",
@@ -245,7 +308,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--save_total_limit",
         type=int,
         default=3,
-        help="With eval: keeps best eval_loss checkpoint plus rotating step saves (HF semantics).",
+        help="With eval: keeps best eval__loss checkpoint plus rotating step saves (HF semantics).",
     )
     p.add_argument(
         "--resume_from_checkpoint",
@@ -256,6 +319,12 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument("--warmup_ratio", type=float, default=0.03)
     p.add_argument("--beta", type=float, default=0.0, help="KL coefficient; 0 disables KL in GRPO.")
+    p.add_argument(
+        "--reward_exp_divisor",
+        type=float,
+        default=100.0,
+        help="Reward exp(-|pred-gt|/divisor). Smaller divisor sharpens rewards (larger effective weight on error, wider within-group contrast).",
+    )
     p.add_argument(
         "--report_to",
         type=str,
@@ -339,6 +408,22 @@ def main() -> None:
 
     eval_steps = args.eval_steps if args.eval_steps > 0 else args.save_steps
 
+    if args.eval_subset_ratio < 0:
+        eval_subset_ratio = min(1.0, 2.0 * float(eval_steps) / max(1, len(train_ds)))
+    else:
+        eval_subset_ratio = min(1.0, max(0.0, float(args.eval_subset_ratio)))
+    if eval_subset_ratio <= 0.0:
+        eval_subset_ratio = min(1.0, 2.0 * float(eval_steps) / max(1, len(train_ds)))
+        _LOG.warning("eval_subset_ratio was <= 0; using auto ratio %.5f", eval_subset_ratio)
+
+    if eval_ds is not None and int(os.environ.get("RANK", "0")) == 0:
+        _LOG.info(
+            "Each validation run uses %.5f of val rows (train_rows=%s, eval_steps=%s)",
+            eval_subset_ratio,
+            len(train_ds),
+            eval_steps,
+        )
+
     parts = [x.strip() for x in args.report_to.split(",") if x.strip()]
     if not parts or parts == ["none"]:
         report_to_val: str | list[str] = "none"
@@ -391,7 +476,7 @@ def main() -> None:
         training_kwargs["eval_steps"] = eval_steps
         training_kwargs["per_device_eval_batch_size"] = per_dev_eval
         training_kwargs["load_best_model_at_end"] = True
-        training_kwargs["metric_for_best_model"] = "eval_loss"
+        training_kwargs["metric_for_best_model"] = "eval__loss"
         training_kwargs["greater_is_better"] = False
 
     use_vllm = not args.no_vllm
@@ -410,14 +495,20 @@ def main() -> None:
 
     training_args = GRPOConfig(**training_kwargs)
 
-    trainer = GRPOTrainer(
+    trainer_cls = GRPOTrainer
+    trainer_kwargs: dict = dict(
         model=args.model_name_or_path,
         args=training_args,
-        reward_funcs=pct_change_exp_reward,
+        reward_funcs=make_pct_change_exp_reward(args.reward_exp_divisor),
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         processing_class=tokenizer,
     )
+    if eval_ds is not None and eval_subset_ratio < 1.0:
+        trainer_cls = GRPOTrainerEvalSubset
+        trainer_kwargs["eval_subset_ratio"] = eval_subset_ratio
+
+    trainer = trainer_cls(**trainer_kwargs)
     resume_ckpt = _resolve_resume_from_checkpoint(args.resume_from_checkpoint, args.output_dir)
     trainer.train(resume_from_checkpoint=resume_ckpt)
     trainer.save_model(args.output_dir)

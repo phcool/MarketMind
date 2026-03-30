@@ -8,9 +8,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-4,5,6,7}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 
 accelerate launch \
   --config_file train/accelerate_deepspeed_zero3.yaml \
-  train/train_grpo_qwen.py \
+  train/train_grpo_qwen.py --reward_exp_divisor 5 \
   "$@"

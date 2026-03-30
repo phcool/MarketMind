@@ -13,7 +13,12 @@ File format (same idea as report cache):
   ---
   <body paragraphs joined by newlines>
 
-Resume: skips rows whose output file already exists and has non-empty body after '---'.
+Resume: skips rows whose output file already exists and has non-empty body after '---',
+and URLs already present with non-empty body anywhere under Content/news/ (full scan).
+
+HTTP 429/456/503: exponential backoff + extra delay before retry.
+
+Writes checkpoint/fetch_news_content_disk.json when the run finishes.
 
 Requires: requests, beautifulsoup4.
 """
@@ -23,9 +28,10 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import requests
@@ -35,7 +41,11 @@ from stock_universe import all_symbols, load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 CONTENT_NEWS_DIR = ROOT_DIR / "Content" / "news"
+CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
+NEWS_FETCH_CHECKPOINT_JSON = CHECKPOINT_DIR / "fetch_news_content_disk.json"
 DEFAULT_NEWS_CSV = ROOT_DIR / "exports" / "news.csv"
+
+HTTP_THROTTLE_CODES = frozenset({429, 456, 503})
 
 DEFAULT_SECTOR = "电力设备与新能源"
 DEFAULT_SINCE = date(2025, 11, 1)
@@ -68,6 +78,26 @@ def url_to_relpath(url: str, news_date: date) -> Path:
 
 def output_path(url: str, news_date: date) -> Path:
     return CONTENT_NEWS_DIR / url_to_relpath(url, news_date)
+
+
+def scan_nonempty_news_urls(content_dir: Path) -> set[str]:
+    """URLs that already have a non-empty cached body anywhere under content_dir."""
+    out: set[str] = set()
+    if not content_dir.is_dir():
+        return out
+    for p in content_dir.rglob("*.txt"):
+        if not is_already_done(p):
+            continue
+        try:
+            raw = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in raw.splitlines()[:20]:
+            s = line.strip()
+            if s.startswith("URL="):
+                out.add(s[4:].strip())
+                break
+    return out
 
 
 def is_already_done(path: Path) -> bool:
