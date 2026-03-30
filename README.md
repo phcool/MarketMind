@@ -31,30 +31,29 @@
 | `exports/report.csv` | `url,symbol,title,date,content`（新浪研报；正文可由 `fetch_report_content.py` 回填） |
 | `exports/quotes.csv` | `symbol,trade_date,open,close,high,low,volume,amount,amplitude,pct_change,change_amount,turnover`（日线；`(symbol, trade_date)` 唯一） |
 
-### 从 `quotes` 导出「7 日 K 线 → prompt」训练集
+### 从 `quotes` 导出「7 日 K 线 → 下一日涨/跌」训练集
 
 脚本：`scripts/build_quotes_7d_dataset.py`  
 
-从 **`exports/quotes.csv`** 读取 `trade_date <= data_end`（默认 `2026-03-28`）的日线，按股票做**滑动窗口**（7 日特征 → 第 8 日涨跌幅标签）。**归一化**在每只股票的「训练 + 验证」合并序列上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 一致），再分别写入：
+只读取 **`trade_date < --train-before`**（默认 `2026-01-01`）的日线；按股票**滑动窗口**（Day1–Day7 特征 → 预测 Day8）。归一化只在上述截止前的序列上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 思路一致）。
 
-- **训练集**：标签日 `< 2026-01-01` → 默认 `exports/quotes_7d_pre2026_dataset.csv`
-- **验证集**：标签日 `2026-01-01`～`2026-03-28` → 默认 `exports/quotes_7d_val_20260101_20260328_dataset.csv`
+输出**单个** UTF-8 CSV，列 **`prompt`, `label`**：`label` 为「涨」或「跌」——若 Day8 当日 `pct_change >= 0` 为「涨」，否则为「跌」。Prompt 要求模型**只输出**「涨」或「跌」。
 
-**CSV 第二列仍为真实涨跌幅（%）**，便于算 MAE。
+默认输出：`train/dataset/quotes_7d_pre2026_dataset.csv`。
 
 ```bash
 python scripts/build_quotes_7d_dataset.py
-python scripts/build_quotes_7d_dataset.py -o exports/train.csv --val-output exports/val.csv
-python scripts/build_quotes_7d_dataset.py --data-end 2026-03-28 --train-before 2026-01-01 --val-start 2026-01-01 --val-end 2026-03-28
+python scripts/build_quotes_7d_dataset.py -o train/dataset/my_train.csv
+python scripts/build_quotes_7d_dataset.py --train-before 2026-01-01
 ```
 
 ### GRPO 强化学习训练（Qwen2.5-7B-Instruct）
 
 使用 **Hugging Face TRL** 的 **GRPO** + **Accelerate + DeepSpeed ZeRO-3**，默认 **8 卡**（`CUDA_VISIBLE_DEVICES` 可改）。**Rollout 默认启用 vLLM**（`vllm_mode=colocate`，与训练同机共享 GPU；依赖 `trl[vllm]`）。入口：`train/train_grpo_qwen.py`；启动：`train/run_grpo_8gpu.sh`；DeepSpeed：`train/ds_zero3.json`；Accelerate：`train/accelerate_deepspeed_zero3.yaml`。架构与 reward 细节见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) **§10**。
 
-**数据**：CSV 需含 `prompt`、`pct_change`。默认 `train/dataset/quotes_7d_pre2026_dataset.csv`。
+**数据**：`train_grpo_qwen.py` 当前示例仍按 **`prompt` + `pct_change`（回归）** 设计；若改用上述「涨/跌」数据集，需自行调整数据列与 reward（例如分类准确率）。
 
-**Reward**：补全**最后一行**解析浮点数（去 `%`），`reward = exp(-|pred - label| / 100)`；解析失败 **0**。
+**Reward（回归示例）**：补全**最后一行**解析浮点数（去 `%`），`reward = exp(-|pred - label| / 100)`；解析失败 **0**。
 
 ```bash
 pip install -r train/requirements.txt

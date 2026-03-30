@@ -1,17 +1,13 @@
 """
-Build train + validation CSVs from exports/quotes.csv.
+Build a single training CSV from exports/quotes.csv.
 
-Loads all rows with trade_date <= data_end (default 2026-03-28). Per symbol,
-normalization stats use the FULL loaded series (train + validation periods combined).
+Uses only rows with trade_date strictly before --train-before (default 2026-01-01).
+Per symbol, normalization is fit on that pre-cutoff series only.
 
-Training rows: label trade_date < train_before (default 2026-01-01).
-Validation rows: label trade_date in [val_start, val_end] (default 2026-01-01 .. 2026-03-28).
+Each row: 7-day normalized K-line prompt -> label is the next day's direction:
+  「涨」 if that day's pct_change >= 0, else 「跌」.
 
-Normalization (per stock, on merged history through data_end):
-  open/high/low/close — independent Min-Max [0,1]; volume — log1p then Min-Max;
-  pct_change — Z-score; turnover — Min-Max; amplitude — raw.
-
-Outputs: UTF-8 CSV, columns prompt, pct_change.
+Outputs: UTF-8 CSV, columns prompt, label.
 """
 
 from __future__ import annotations
@@ -28,24 +24,15 @@ from typing import Any
 from csv_io import QUOTES_CSV
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_TRAIN_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
-DEFAULT_VAL_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_val_20260101_20260328_dataset.csv"
+DEFAULT_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
 
 HEADER = """过去7个交易日的K线数据如下(归一化后)：
 """
 
-TAIL = """请结合上文的 Day1–Day7，简要判断趋势、成交与多空力量，并预测下一个交易日（Day8）的收盘涨跌幅（pct_change，单位%）写到最后一行。
+TAIL = """请根据上文 Day1–Day7 的归一化 K 线，只预测下一个交易日（Day8）相对前一日是涨还是跌。
 
-【输出格式（必须严格遵守）】
-1. 你可以有文字思考过程，写在前面,但是在最后一行必须输出你对下一个交易日的收盘涨跌幅的预测(pct_change，单位%)。
-2. 全文的最后一行必须是单独一行，写你对涨跌幅的预测，表示 Day8 的预测涨跌幅数值；
-
-【格式示例】
-
-<你的思考过程>
-pct_change_prediction: 0.**%
-
-现在请按上述格式输出结论：最后一行必须形如「pct_change_prediction: 数字%」（数字可带负号与小数点）。"""
+【输出要求（必须严格遵守）】
+只输出一个字：「涨」或「跌」，不要输出其他任何文字、数字、标点或换行。"""
 
 
 def _to_float(x: Any) -> float | None:
@@ -83,6 +70,14 @@ def _min_max_bounds(vals: list[float]) -> tuple[float, float]:
     if hi <= lo:
         hi = lo + 1e-9
     return lo, hi
+
+
+def pct_change_to_label(pc: Any) -> str | None:
+    """「涨」 if pct_change >= 0, else 「跌」; None if missing."""
+    v = _to_float(pc)
+    if v is None:
+        return None
+    return "涨" if v >= 0 else "跌"
 
 
 @dataclass
@@ -241,9 +236,8 @@ def build_prompt(norm: StockNormalizer, prev7: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def load_quotes_csv(data_end: str) -> list[tuple[str, list[dict]]]:
-    """Load quotes from exports/quotes.csv through data_end (inclusive)."""
-    end = date.fromisoformat(data_end[:10])
+def load_quotes_before(train_before: date) -> list[tuple[str, list[dict]]]:
+    """Load quotes from exports/quotes.csv with trade_date < train_before only."""
     if not QUOTES_CSV.is_file():
         return []
     by_symbol: dict[str, list[dict]] = {}
@@ -258,7 +252,7 @@ def load_quotes_csv(data_end: str) -> list[tuple[str, list[dict]]]:
                 td = date.fromisoformat(td_s)
             except ValueError:
                 continue
-            if td > end:
+            if td >= train_before:
                 continue
             rec = {
                 "trade_date": td,
@@ -285,55 +279,31 @@ def _as_date(d: Any) -> date:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Build train + val 7-day K-line prompt datasets (joint per-stock normalization)."
-    )
-    ap.add_argument(
-        "--data-end",
-        default="2026-03-28",
-        help="Load quotes with trade_date <= this (YYYY-MM-DD); also used to fit normalization.",
+        description="Build 7-day K-line -> next-day 涨/跌 classification dataset (pre-cutoff only).",
     )
     ap.add_argument(
         "--train-before",
         default="2026-01-01",
-        help="Training samples: label trade_date < this date.",
+        help="Only use quotes with trade_date < this date (YYYY-MM-DD). Labels are Day8 on the same range.",
     )
     ap.add_argument(
-        "--val-start",
-        default="2026-01-01",
-        help="Validation samples: label trade_date >= this date.",
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_OUT,
+        help="Output CSV path (columns: prompt, label).",
     )
-    ap.add_argument(
-        "--val-end",
-        default="2026-03-28",
-        help="Validation samples: label trade_date <= this date.",
-    )
-    ap.add_argument("-o", "--output", type=Path, default=DEFAULT_TRAIN_OUT, help="Training CSV path.")
-    ap.add_argument("--val-output", type=Path, default=DEFAULT_VAL_OUT, help="Validation CSV path.")
     args = ap.parse_args()
 
     train_before = _as_date(args.train_before)
-    val_start = _as_date(args.val_start)
-    val_end = _as_date(args.val_end)
-    if val_start > val_end:
-        raise SystemExit("val-start must be <= val-end")
-    if train_before > val_start:
-        raise SystemExit("train-before must be <= val-start so train/val label dates do not overlap")
-
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.val_output.parent.mkdir(parents=True, exist_ok=True)
 
-    groups = load_quotes_csv(args.data_end)
+    groups = load_quotes_before(train_before)
 
-    n_train = 0
-    n_val = 0
-    with (
-        args.output.open("w", encoding="utf-8", newline="") as f_train,
-        args.val_output.open("w", encoding="utf-8", newline="") as f_val,
-    ):
-        w_train = csv.writer(f_train, quoting=csv.QUOTE_MINIMAL)
-        w_val = csv.writer(f_val, quoting=csv.QUOTE_MINIMAL)
-        w_train.writerow(["prompt", "pct_change"])
-        w_val.writerow(["prompt", "pct_change"])
+    n_out = 0
+    with args.output.open("w", encoding="utf-8", newline="") as f_out:
+        w = csv.writer(f_out, quoting=csv.QUOTE_MINIMAL)
+        w.writerow(["prompt", "label"])
 
         for _symbol, series in groups:
             if len(series) < 8:
@@ -341,22 +311,15 @@ def main() -> None:
             norm = StockNormalizer.from_series(series)
             for k in range(7, len(series)):
                 target = series[k]
-                td = _as_date(target["trade_date"])
-                pc = target.get("pct_change")
-                if pc is None:
+                lab = pct_change_to_label(target.get("pct_change"))
+                if lab is None:
                     continue
                 prev7 = series[k - 7 : k]
                 prompt = build_prompt(norm, prev7)
-                row = [prompt, float(pc)]
-                if td < train_before:
-                    w_train.writerow(row)
-                    n_train += 1
-                elif val_start <= td <= val_end:
-                    w_val.writerow(row)
-                    n_val += 1
+                w.writerow([prompt, lab])
+                n_out += 1
 
-    print(f"Wrote {n_train} train rows to {args.output}")
-    print(f"Wrote {n_val} val rows to {args.val_output}")
+    print(f"Wrote {n_out} rows to {args.output} (label: 涨 if pct_change>=0 else 跌)")
 
 
 if __name__ == "__main__":
