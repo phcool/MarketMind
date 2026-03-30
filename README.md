@@ -1,6 +1,6 @@
 # A股重点板块数据仓库
 
-这个项目围绕 7 大行业板块股票，维护了三类核心数据（行情、论坛、资讯/研报），并提供 PostgreSQL 入库与可视化分析页面。
+这个项目围绕 7 大行业板块股票，维护了三类核心数据（行情、论坛、资讯/研报），全部落在项目根目录 **`exports/*.csv`**（UTF-8），并提供可视化分析页面。
 
 **股票清单**：`config/stocks.json`（`sectors` → 每板块内 `name` / `symbol` / `market`）。抓取脚本与 `stock_daily_dashboard` 均从此文件读取，不再扫描本地板块目录。
 
@@ -12,91 +12,30 @@
 - **东方财富-股吧**：帖子标题、URL、发布时间、点击量、评论数
 - **东方财富-新闻搜索**：新闻标题、URL、日期（eastmoney platform）
 - **新浪财经-研报列表**：研报标题、URL、日期（sina platform）
-- **新浪财经-研报详情页**：研报正文内容（填充 report.content）
+- **新浪财经-研报详情页**：研报正文内容（填充 `exports/report.csv` 的 `content` 列，或由 `fetch_report_content_to_disk.py` 写入 `Content/report/`）
 
 ## 本地配置与缓存
 
 - **`config/stocks.json`**：7 个板块、35 只股票的唯一来源。
-- 行情/股吧/新闻/研报数据在 **PostgreSQL**；`stock_daily_dashboard` 的 K 线来自 **`quotes` 表**。
-- 研报正文抓取可能使用本地缓存目录（见 `fetch_report_content.py`），与股票列表无关。
+- 行情/股吧/新闻/研报数据在 **`exports/`** 下对应 CSV；`stock_daily_dashboard` 的 K 线与列表数据均从这些文件读取。
+- 研报正文还可使用本地缓存目录 `Content/report/`（见 `fetch_report_content_to_disk.py` / 看板按需抓取）。
 
-## 数据库结构（PostgreSQL: `financial_data`）
+## `exports/` CSV 布局（唯一数据源）
 
-当前主表：
+| 文件 | 写入脚本 | 说明 |
+|------|----------|------|
+| `quotes.csv` | `fetch_stocks.py` | 主键语义：`symbol` + `trade_date`（合并时后者覆盖） |
+| `comments.csv` | `fetch_forum_all.py` | 列同上；按 `url` 去重；写入后全局裁剪为每只股票每个自然日 **`click_count` 最高的 200 条**（`csv_io.COMMENTS_MAX_PER_SYMBOL_DAY`） |
+| `news.csv` | `fetch_news_eastmoney.py --platform eastmoney` | 列：`url,symbol,title,date`；按 `url` 去重 |
+| `report.csv` | `fetch_news_eastmoney.py --platform sina`、`fetch_report_content.py` | 列：`url,symbol,title,date,content`；列表抓取追加空 `content`，正文脚本回填 |
 
-### 1) `comments`
+共享合并逻辑：`scripts/csv_io.py`；akshare → 行情行映射：`scripts/quotes_db.py`。
 
-字段：
-
-- `url` `TEXT` PRIMARY KEY
-- `post_id` `VARCHAR(50)`
-- `symbol` `VARCHAR(6)`
-- `post_title` `TEXT`
-- `publish_time` `TIMESTAMP`
-- `click_count` `INTEGER`
-- `comment_count` `INTEGER`
-
-索引：
-
-- `idx_comments_symbol(symbol)`
-- `idx_comments_publish_time(publish_time)`
-
-### 2) `news`
-
-字段：
-
-- `url` `TEXT` PRIMARY KEY
-- `symbol` `VARCHAR(6)`
-- `title` `TEXT`
-- `date` `DATE`
-
-索引：
-
-- `idx_news_symbol(symbol)`
-- `idx_news_date(date)`
-
-### 3) `report`
-
-字段：
-
-- `url` `TEXT` PRIMARY KEY
-- `symbol` `VARCHAR(6)`
-- `title` `TEXT`
-- `date` `DATE`
-- `content` `TEXT`（研报正文）
-
-索引：
-
-- `idx_report_symbol(symbol)`
-- `idx_report_date(date)`
-
-### 4) `quotes`
-
-日线行情（由 `fetch_stocks.py` 写入；列语义与 akshare 日线一致）。
-
-字段：
-
-- `symbol` `VARCHAR(10)` — 股票代码（与 `trade_date` 联合主键）
-- `trade_date` `DATE`
-- `open` / `close` / `high` / `low` `NUMERIC(14,4)`
-- `volume` `BIGINT` — 成交量
-- `amount` `NUMERIC(22,6)` — 成交额
-- `amplitude` `NUMERIC(10,4)` — 振幅
-- `pct_change` `NUMERIC(10,4)` — 涨跌幅
-- `change_amount` `NUMERIC(14,4)` — 涨跌额
-- `turnover` `NUMERIC(10,4)` — 换手率
-
-主键：`PRIMARY KEY (symbol, trade_date)`
-
-索引：`idx_quotes_symbol(symbol)`、`idx_quotes_trade_date(trade_date)`
-
-建表 SQL：`scripts/sql/create_quotes_table.sql` · 共享逻辑：`scripts/quotes_db.py`
-
-### 从 `quotes` 导出「7 日 K 线 → prompt」训练集
+### 从 `exports/quotes.csv` 构建「7 日 K 线 → prompt」训练集
 
 脚本：`scripts/build_quotes_7d_dataset.py`  
 
-从库中读取 `trade_date <= data_end`（默认 `2026-03-28`）的日线，按股票做**滑动窗口**（7 日特征 → 第 8 日涨跌幅标签）。**归一化**在每只股票的「训练 + 验证」合并序列上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 一致），再分别写入：
+从 **`exports/quotes.csv`**（可用 `--quotes-csv` 指定）读取 `trade_date <= data_end`（默认 `2026-03-28`）的日线，按股票做**滑动窗口**（7 日特征 → 第 8 日涨跌幅标签）。**归一化**在每只股票的「训练 + 验证」合并序列上估计，再分别写入：
 
 - **训练集**：标签日 `< 2026-01-01` → 默认 `exports/quotes_7d_pre2026_dataset.csv`
 - **验证集**：标签日 `2026-01-01`～`2026-03-28` → 默认 `exports/quotes_7d_val_20260101_20260328_dataset.csv`
@@ -108,8 +47,6 @@ python scripts/build_quotes_7d_dataset.py
 python scripts/build_quotes_7d_dataset.py -o exports/train.csv --val-output exports/val.csv
 python scripts/build_quotes_7d_dataset.py --data-end 2026-03-28 --train-before 2026-01-01 --val-start 2026-01-01 --val-end 2026-03-28
 ```
-
-环境变量：`PG_DSN`（可选，默认 `dbname=financial_data`）。
 
 ### GRPO 强化学习训练（Qwen2.5-7B-Instruct）
 
@@ -129,14 +66,6 @@ bash train/run_grpo_8gpu.sh
 
 常用参数：`--vllm_gpu_memory_utilization`（colocate 显存比例）、`--num_generations`、`--max_prompt_length`、`--max_completion_length`、`--report_to tensorboard`。
 
-## 数据量（当前库快照）
-
-- `comments`: **3,301,111**
-- `news`: **5,372**
-- `report`: **9,562**
-
-> 注：数据量会随抓取与导入任务持续变化。
-
 ## 核心脚本与使用方式
 
 以下命令默认在项目根目录执行。
@@ -145,14 +74,14 @@ bash train/run_grpo_8gpu.sh
 
 ### A. 行情抓取：`scripts/fetch_stocks.py`
 
-作用：通过 akshare 抓取日线行情并 **upsert 到 PostgreSQL `quotes` 表**（主键 `symbol` + `trade_date`）。
+作用：通过 akshare 抓取日线行情并 **合并写入 `exports/quotes.csv`**（按 `symbol` + `trade_date` 去重覆盖）。
 
 特性：
 
 - checkpoint：`checkpoint/fetch_stocks_checkpoint.json`（按股票代码记录已抓到的最新交易日）
 - 默认增量（从 checkpoint 次日抓到今日）
 - `--add` 从 `DEFAULT_START_DATE` 全量重拉（仍按主键去重更新）
-- 依赖：`akshare`、`pandas`、`psycopg2`；DSN 同 `PG_DSN` / `dbname=financial_data`
+- 依赖：`akshare`、`pandas`
 
 用法：
 
@@ -165,7 +94,7 @@ python scripts/fetch_stocks.py --add
 
 ### B. 论坛抓取：`scripts/fetch_forum_all.py`
 
-作用：抓取股吧帖子并写入 PostgreSQL **`comments`** 表（按 `url` 去重）。
+作用：抓取股吧帖子并写入 **`exports/comments.csv`**（按 `url` 去重；每次合并写入后按「股票 + 自然日」只保留 **`click_count` 最高的 200 条**，与离线裁剪规则一致）。
 
 特性（已实现）：
 
@@ -195,7 +124,7 @@ python scripts/fetch_forum_all.py --offset 10
 特性：
 
 - checkpoint 按平台独立管理（`checkpoint/fetch_news_<platform>_checkpoint.json`）
-- `--add` 全量重抓（数据库按 `url` 去重 upsert/跳过重复）
+- `--add` 全量重抓（CSV 按 `url` 去重合并）
 - Eastmoney 使用新闻搜索 URL（按股票名 + 时间排序，最多 50 页）
 - 已支持 zero-save-streak（连续 5 页无新增则停止）
 
@@ -207,7 +136,7 @@ python scripts/fetch_news_eastmoney.py --platform sina
 python scripts/fetch_news_eastmoney.py --platform eastmoney --add
 ```
 
-**新闻正文落盘（不入库）**：`scripts/fetch_news_content_to_disk.py` 从 **`exports/news.csv`**（默认路径，可由 `--csv` 指定；可先运行 `scripts/export_pg_tables_to_csv.py` 导出）读取 `url,symbol,title,date`，抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。失败时按指数退避重试：首次等待 `--retry-base-delay`（默认与 `--delay` 相同），每次再失败则等待时间翻倍，最多 `--max-attempts` 次（默认 5）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
+**新闻正文落盘**：`scripts/fetch_news_content_to_disk.py` 从 **`exports/news.csv`**（默认路径，可由 `--csv` 指定）读取 `url,symbol,title,date`，抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。失败时按指数退避重试：首次等待 `--retry-base-delay`（默认与 `--delay` 相同），每次再失败则等待时间翻倍，最多 `--max-attempts` 次（默认 5）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
 
 ```bash
 python scripts/fetch_news_content_to_disk.py
@@ -215,7 +144,7 @@ python scripts/fetch_news_content_to_disk.py --all
 python scripts/fetch_news_content_to_disk.py --symbols 300750,300014 --since 2025-11-01 --force
 ```
 
-**研报正文落盘（不入库）**：`scripts/fetch_report_content_to_disk.py` 从 **`exports/report.csv`**（默认，`--csv` 可改）读取行，复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。失败时指数退避重试：`--retry-base-delay`（默认同 `--delay`，默认 2s）、`--max-attempts`（默认 5）、`--timeout`。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
+**研报正文落盘**：`scripts/fetch_report_content_to_disk.py` 从 **`exports/report.csv`**（默认，`--csv` 可改）读取行，复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。失败时指数退避重试：`--retry-base-delay`（默认同 `--delay`，默认 2s）、`--max-attempts`（默认 5）、`--timeout`。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
 
 ```bash
 python scripts/fetch_report_content_to_disk.py
@@ -234,15 +163,24 @@ python scripts/fetch_market_data.py --mode all
 python scripts/fetch_market_data.py --mode comments --offset 5
 ```
 
-### E. 新浪研报正文抓取：`scripts/fetch_report_content.py`
+### E. 新浪研报正文回填 CSV：`scripts/fetch_report_content.py`
 
-对 `report.content IS NULL` 的记录抓正文并回写数据库。
+对 **`exports/report.csv`** 中 `content` 为空的行抓取正文并回写该列（适合与列表抓取脚本配合）。
 
 ```bash
 python scripts/fetch_report_content.py
 ```
 
-> **`scripts/import_all_to_pg.py` 已弃用**：仓库不再提供按本地目录树批量导入的模块；请使用上述 `fetch_*` 脚本直写数据库。
+### F. 删除旧 PostgreSQL 库（一次性）
+
+若曾使用数据库 `financial_data` 且已迁到 CSV，可安装 `psycopg2-binary` 后执行（会要求输入 `YES` 确认）：
+
+```bash
+pip install psycopg2-binary
+python scripts/drop_financial_data_database.py
+```
+
+默认使用管理连接串 `PG_ADMIN_DSN`（未设置时为 `dbname=postgres`），**不要**连到 `financial_data` 本身。
 
 ## 可视化与LLM分析页面
 
@@ -250,9 +188,9 @@ python scripts/fetch_report_content.py
 
 功能：
 
-- 选股票 + 选日期查看当日 `comments / news / reports`
+- 选股票 + 选日期查看当日 `comments / news / reports`（来自 `exports/*.csv`）
 - 一键总结当日评论观点（流式输出）
-- 基于“总结 + 最近 7 交易日 K 线（`quotes` 表）”预测 1/3/7 天走势
+- 基于“总结 + 最近 7 交易日 K 线（`exports/quotes.csv`）”预测 1/3/7 天走势
 - 总结最近 3 条研报正文、当日 news 等（见页面按钮）
 
 启动：
@@ -277,6 +215,6 @@ python scripts/stock_daily_dashboard.py
 
 ## 备注
 
-- 数据落盘与入库都以 `url` 作为去重主键，避免重复采集
+- 数据写入 CSV 时以 `url`（或行情 `symbol+trade_date`）作为去重主键，避免重复采集
 - `symbol` 字段统一为 6 位字符串，保留前导零
 - 如果中途中断，绝大多数任务可直接重跑继续

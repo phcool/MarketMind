@@ -1,5 +1,5 @@
 """
-Unified entry: fetch comments (forum), news (eastmoney search), and/or report (sina) into PostgreSQL.
+Unified entry: fetch comments (forum), news (eastmoney search), and/or report (sina) into exports/*.csv.
 
 Reuses logic from fetch_forum_all.py and fetch_news_eastmoney.py; injects SECTORS from config/stocks.json.
 
@@ -17,8 +17,6 @@ from __future__ import annotations
 import argparse
 import logging
 import time
-
-import psycopg2
 
 import fetch_forum_all as forum
 import fetch_news_eastmoney as nem
@@ -91,49 +89,40 @@ def run_news(args: argparse.Namespace) -> None:
         log.warning("offset %d > total %d, skip news.", start_index, total)
         return
 
-    conn = psycopg2.connect(nem.DSN)
-    conn.autocommit = False
-    cur = conn.cursor()
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 720},
-            )
-            page = context.new_page()
-            try:
-                done = 0
-                for sector, companies in SECTORS.items():
-                    for name, symbol, market in companies:
-                        done += 1
-                        if done < start_index:
-                            continue
-                        company_key = nem._company_key(sector, name, symbol, market)
-                        if company_key in completed_set:
-                            log.info(
-                                "── [%d/%d] %s / %s — skip [news, done]",
-                                done, total, sector, name,
-                            )
-                            continue
-                        log.info("── [%d/%d] %s / %s [news]", done, total, sector, name)
-                        try:
-                            nem.fetch_eastmoney(page, cur, name, symbol, market, sector)
-                            conn.commit()
-                            completed_set.add(company_key)
-                            nem.save_checkpoint(platform, completed_set)
-                        except Exception as exc:
-                            conn.rollback()
-                            log.exception("news %s: %s", name, exc)
-                        time.sleep(1)
-            finally:
-                browser.close()
-    finally:
-        cur.close()
-        conn.close()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 720},
+        )
+        page = context.new_page()
+        try:
+            done = 0
+            for sector, companies in SECTORS.items():
+                for name, symbol, market in companies:
+                    done += 1
+                    if done < start_index:
+                        continue
+                    company_key = nem._company_key(sector, name, symbol, market)
+                    if company_key in completed_set:
+                        log.info(
+                            "── [%d/%d] %s / %s — skip [news, done]",
+                            done, total, sector, name,
+                        )
+                        continue
+                    log.info("── [%d/%d] %s / %s [news]", done, total, sector, name)
+                    try:
+                        nem.fetch_eastmoney(page, None, name, symbol, market, sector)
+                        completed_set.add(company_key)
+                        nem.save_checkpoint(platform, completed_set)
+                    except Exception as exc:
+                        log.exception("news %s: %s", name, exc)
+                    time.sleep(1)
+        finally:
+            browser.close()
 
 
 def run_report(args: argparse.Namespace) -> None:
@@ -153,36 +142,27 @@ def run_report(args: argparse.Namespace) -> None:
         log.warning("offset %d > total %d, skip report.", start_index, total)
         return
 
-    conn = psycopg2.connect(nem.DSN)
-    conn.autocommit = False
-    cur = conn.cursor()
-    try:
-        done = 0
-        for sector, companies in SECTORS.items():
-            for name, symbol, market in companies:
-                done += 1
-                if done < start_index:
-                    continue
-                company_key = nem._company_key(sector, name, symbol, market)
-                if use_checkpoint and company_key in completed_set:
-                    log.info(
-                        "── [%d/%d] %s / %s — skip [report, done]",
-                        done, total, sector, name,
-                    )
-                    continue
-                log.info("── [%d/%d] %s / %s [report]", done, total, sector, name)
-                try:
-                    nem.fetch_sina(None, cur, name, symbol, market, sector)
-                    conn.commit()
-                    completed_set.add(company_key)
-                    nem.save_checkpoint(platform, completed_set)
-                except Exception as exc:
-                    conn.rollback()
-                    log.exception("report %s: %s", name, exc)
-                time.sleep(1)
-    finally:
-        cur.close()
-        conn.close()
+    done = 0
+    for sector, companies in SECTORS.items():
+        for name, symbol, market in companies:
+            done += 1
+            if done < start_index:
+                continue
+            company_key = nem._company_key(sector, name, symbol, market)
+            if use_checkpoint and company_key in completed_set:
+                log.info(
+                    "── [%d/%d] %s / %s — skip [report, done]",
+                    done, total, sector, name,
+                )
+                continue
+            log.info("── [%d/%d] %s / %s [report]", done, total, sector, name)
+            try:
+                nem.fetch_sina(None, None, name, symbol, market, sector)
+                completed_set.add(company_key)
+                nem.save_checkpoint(platform, completed_set)
+            except Exception as exc:
+                log.exception("report %s: %s", name, exc)
+            time.sleep(1)
 
 
 def main() -> None:
@@ -194,18 +174,18 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        description="Fetch comments / eastmoney news / sina reports into PostgreSQL (unified SECTORS).",
+        description="Fetch comments / eastmoney news / sina reports into exports/*.csv (unified SECTORS).",
     )
     parser.add_argument(
         "--mode",
         choices=("all", "comments", "news", "report"),
         default="all",
-        help="all=forum + news + report; comments=股吧; news=eastmoney->news表; report=sina->report表",
+        help="all=forum + news + report; comments=股吧; news=eastmoney->news.csv; report=sina->report.csv",
     )
     parser.add_argument(
         "--add",
         action="store_true",
-        help="Ignore checkpoints for selected mode(s); DB still dedupes by url.",
+        help="Ignore checkpoints for selected mode(s); CSV still dedupes by url.",
     )
     parser.add_argument(
         "--offset",

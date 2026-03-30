@@ -11,8 +11,8 @@ Multi-threading per company:
     either all pages are done or inserted row count reaches MAX_POSTS_PER_COMPANY (10k).
   - When capped at 10k, checkpoint records capped_at so the company is skipped on resume.
 
-Storage: PostgreSQL table `comments` (dedup by url via ON CONFLICT DO NOTHING).
-Connection: PG_DSN env or default dbname=financial_data.
+Storage: exports/comments.csv (dedup by url; each successful merge rewrites trimmed to the top
+COMMENTS_MAX_PER_SYMBOL_DAY rows per symbol per calendar day by click_count — see csv_io.py).
 
 Checkpoint: checkpoint/fetch_forum_checkpoint.json — completed page numbers per company.
 Use --add to ignore checkpoint and re-fetch from page 1 for all companies.
@@ -21,7 +21,6 @@ Use --add to ignore checkpoint and re-fetch from page 1 for all companies.
 import argparse
 import json
 import math
-import os
 import re
 import threading
 import time
@@ -30,11 +29,10 @@ from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, wait
 
-import psycopg2
 import requests
 from bs4 import BeautifulSoup
-from psycopg2.extras import execute_values
 
+from csv_io import merge_append_comments
 from stock_universe import load_sectors
 
 # ── configuration ────────────────────────────────────────────────────────────
@@ -42,7 +40,6 @@ from stock_universe import load_sectors
 ROOT_DIR = Path(__file__).resolve().parent.parent
 CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
 CHECKPOINT_FILE = CHECKPOINT_DIR / "fetch_forum_checkpoint.json"
-DSN = os.environ.get("PG_DSN", "dbname=financial_data")
 
 API_URL       = "https://gbcdn.dfcfw.com/gbapi/webarticlelist_api_Article_Articlelist.js"
 LIST_PAGE_URL = "https://guba.eastmoney.com/list,{symbol}.html"  # for parsing total pages
@@ -52,7 +49,7 @@ REQUEST_DELAY      = 1.5   # seconds each thread sleeps between page fetches
 TIMEOUT            = 20
 MAX_RETRIES        = 3
 MAX_POSTS_PER_COMPANY = 10_000  # stop fetching this stock once we have inserted this many new rows
-MAX_ZERO_SAVE_STREAK = 20       # stop stock if 20 consecutive pages have data but DB inserts 0 new
+MAX_ZERO_SAVE_STREAK = 20       # stop stock if 20 consecutive pages have data but CSV adds 0 new
 
 HEADERS = {
     "User-Agent": (
@@ -89,12 +86,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
-
-SQL_INSERT_COMMENTS = """
-    INSERT INTO comments (url, post_id, symbol, post_title, publish_time, click_count, comment_count)
-    VALUES %s
-    ON CONFLICT (url) DO NOTHING
-"""
 
 # ── checkpoint (per-company: total_pages + completed) ─────────────────────────
 # Value: int N (all 1..N done), or dict {"total_pages": N, "completed": list | int}.
@@ -366,14 +357,10 @@ def posts_to_comment_rows(posts: list[dict], symbol: str) -> list[tuple]:
     return rows
 
 
-def insert_comments(cur, symbol: str, posts: list[dict]) -> int:
-    """Insert posts; duplicates skipped by DB. Returns count of newly inserted rows."""
+def insert_comments(_cur, symbol: str, posts: list[dict]) -> int:
+    """Append posts; duplicates skipped by url. Returns count of newly inserted rows."""
     rows = posts_to_comment_rows(posts, symbol)
-    if not rows:
-        return 0
-    execute_values(cur, SQL_INSERT_COMMENTS, rows)
-    n = cur.rowcount
-    return n if n is not None and n >= 0 else 0
+    return merge_append_comments(rows)
 
 
 # ── worker function (runs in a thread) ───────────────────────────────────────
@@ -381,9 +368,6 @@ def insert_comments(cur, symbol: str, posts: list[dict]) -> int:
 def _worker(
     symbol: str,
     company_key: str,
-    conn,
-    cur,
-    db_lock: threading.Lock,
     dispatcher: PageDispatcher,
     saved_counter: list[int],
     zero_save_streak: list[int],
@@ -409,9 +393,7 @@ def _worker(
 
         n = 0
         if posts:
-            with db_lock:
-                n = insert_comments(cur, symbol, posts)
-                conn.commit()
+            n = insert_comments(None, symbol, posts)
         with counter_lock:
             saved_counter[0] += n
             total_saved = saved_counter[0]
@@ -467,39 +449,28 @@ def fetch_company(name: str, symbol: str, market: str, sector: str,
         max_posts_cap=MAX_POSTS_PER_COMPANY,
     )
     counter_lock = threading.Lock()
-    db_lock = threading.Lock()
 
-    conn = psycopg2.connect(DSN)
-    conn.autocommit = False
-    cur = conn.cursor()
-    try:
-        with ThreadPoolExecutor(
-            max_workers=WORKERS_PER_COMPANY,
-            thread_name_prefix=f"{symbol}",
-        ) as executor:
-            futures = [
-                executor.submit(
-                    _worker,
-                    symbol,
-                    company_key,
-                    conn,
-                    cur,
-                    db_lock,
-                    dispatcher,
-                    saved_counter,
-                    zero_save_streak,
-                    counter_lock,
-                    total_pages,
-                )
-                for _ in range(WORKERS_PER_COMPANY)
-            ]
-            wait(futures)
-            for f in futures:
-                if f.exception():
-                    log.error("Worker raised: %s", f.exception())
-    finally:
-        cur.close()
-        conn.close()
+    with ThreadPoolExecutor(
+        max_workers=WORKERS_PER_COMPANY,
+        thread_name_prefix=f"{symbol}",
+    ) as executor:
+        futures = [
+            executor.submit(
+                _worker,
+                symbol,
+                company_key,
+                dispatcher,
+                saved_counter,
+                zero_save_streak,
+                counter_lock,
+                total_pages,
+            )
+            for _ in range(WORKERS_PER_COMPANY)
+        ]
+        wait(futures)
+        for f in futures:
+            if f.exception():
+                log.error("Worker raised: %s", f.exception())
 
     total_saved = saved_counter[0]
     with dispatcher._lock:
@@ -533,12 +504,12 @@ def fetch_company(name: str, symbol: str, market: str, sector: str,
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch East Money stock bar posts into PostgreSQL. Use --add to re-fetch from page 1.",
+        description="Fetch East Money stock bar posts into exports/comments.csv. Use --add to re-fetch from page 1.",
     )
     parser.add_argument(
         "--add",
         action="store_true",
-        help="Ignore checkpoint and re-fetch all companies from page 1; DB skips duplicate urls.",
+        help="Ignore checkpoint and re-fetch all companies from page 1; CSV skips duplicate urls.",
     )
     parser.add_argument(
         "--offset",
@@ -551,7 +522,7 @@ def main() -> None:
 
     if args.add:
         reset_checkpoint_for_run()
-        log.info("--add: checkpoint reset, will fetch from page 1 for all companies (DB dedup by url)")
+        log.info("--add: checkpoint reset, will fetch from page 1 for all companies (CSV dedup by url)")
     else:
         load_all_checkpoints(use_checkpoint=True)
         if _checkpoint_data:

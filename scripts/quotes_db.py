@@ -1,39 +1,14 @@
 """
-Shared PostgreSQL `quotes` helpers: DDL, upsert SQL, and akshare/DataFrame row mapping.
+Shared `exports/quotes.csv` helpers and akshare/DataFrame row mapping.
 
-Used by fetch_stocks.py. No local txt file I/O.
+Used by fetch_stocks.py (no PostgreSQL).
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pandas as pd
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DSN = os.environ.get("PG_DSN", "dbname=financial_data")
 BATCH = 2000
-
-SQL_PATH = Path(__file__).resolve().parent / "sql" / "create_quotes_table.sql"
-
-SQL_UPSERT = """
-    INSERT INTO quotes (
-        symbol, trade_date, open, close, high, low, volume, amount,
-        amplitude, pct_change, change_amount, turnover
-    ) VALUES %s
-    ON CONFLICT (symbol, trade_date) DO UPDATE SET
-        open = EXCLUDED.open,
-        close = EXCLUDED.close,
-        high = EXCLUDED.high,
-        low = EXCLUDED.low,
-        volume = EXCLUDED.volume,
-        amount = EXCLUDED.amount,
-        amplitude = EXCLUDED.amplitude,
-        pct_change = EXCLUDED.pct_change,
-        change_amount = EXCLUDED.change_amount,
-        turnover = EXCLUDED.turnover
-"""
 
 HEADER_KEYS = {
     "日期": "trade_date",
@@ -51,31 +26,11 @@ HEADER_KEYS = {
 }
 
 
-def ensure_table(cur) -> None:
-    if SQL_PATH.is_file():
-        cur.execute(SQL_PATH.read_text(encoding="utf-8"))
-    else:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS quotes (
-                symbol VARCHAR(10) NOT NULL,
-                trade_date DATE NOT NULL,
-                open NUMERIC(14, 4),
-                close NUMERIC(14, 4),
-                high NUMERIC(14, 4),
-                low NUMERIC(14, 4),
-                volume BIGINT,
-                amount NUMERIC(22, 6),
-                amplitude NUMERIC(10, 4),
-                pct_change NUMERIC(10, 4),
-                change_amount NUMERIC(14, 4),
-                turnover NUMERIC(10, 4),
-                PRIMARY KEY (symbol, trade_date)
-            );
-            CREATE INDEX IF NOT EXISTS idx_quotes_symbol ON quotes (symbol);
-            CREATE INDEX IF NOT EXISTS idx_quotes_trade_date ON quotes (trade_date);
-            """
-        )
+def ensure_table(cur=None) -> None:
+    """Compatibility name: ensure quotes CSV exists with header."""
+    from csv_io import ensure_quotes_csv_header
+
+    ensure_quotes_csv_header()
 
 
 def _coerce_float(v) -> float | None:

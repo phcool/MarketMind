@@ -1,5 +1,5 @@
 """
-Build train + validation CSVs from PostgreSQL `quotes`.
+Build train + validation CSVs from exports/quotes.csv.
 
 Loads all rows with trade_date <= data_end (default 2026-03-28). Per symbol,
 normalization stats use the FULL loaded series (train + validation periods combined).
@@ -19,19 +19,15 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import os
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import psycopg2
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TRAIN_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
 DEFAULT_VAL_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_val_20260101_20260328_dataset.csv"
-DSN = os.environ.get("PG_DSN", "dbname=financial_data")
 
 HEADER = """过去7个交易日的K线数据如下(归一化后)：
 """
@@ -243,24 +239,41 @@ def build_prompt(norm: StockNormalizer, prev7: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def load_quotes(cur, data_end: str) -> list[tuple[str, list[dict]]]:
-    cur.execute(
-        """
-        SELECT symbol, trade_date, open, high, low, close, volume,
-               amplitude, pct_change, turnover
-        FROM quotes
-        WHERE trade_date <= %s::date
-        ORDER BY symbol, trade_date
-        """,
-        (data_end,),
-    )
-    cols = [d[0] for d in cur.description]
-    rows = cur.fetchall()
+def load_quotes_from_csv(quotes_path: Path, data_end: str) -> list[tuple[str, list[dict]]]:
+    if not quotes_path.is_file():
+        raise SystemExit(f"quotes CSV not found: {quotes_path}")
+
+    end_d = _as_date(data_end)
     by_symbol: dict[str, list[dict]] = {}
-    for tup in rows:
-        rec = dict(zip(cols, tup))
-        sym = rec.pop("symbol")
-        by_symbol.setdefault(sym, []).append(rec)
+    with quotes_path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sym = (row.get("symbol") or "").strip()
+            if not sym:
+                continue
+            td_raw = (row.get("trade_date") or "").strip()[:10]
+            if not td_raw:
+                continue
+            try:
+                td = date.fromisoformat(td_raw)
+            except ValueError:
+                continue
+            if td > end_d:
+                continue
+            rec = {
+                "trade_date": td,
+                "open": row.get("open") or None,
+                "high": row.get("high") or None,
+                "low": row.get("low") or None,
+                "close": row.get("close") or None,
+                "volume": row.get("volume") or None,
+                "amplitude": row.get("amplitude") or None,
+                "pct_change": row.get("pct_change") or None,
+                "turnover": row.get("turnover") or None,
+            }
+            by_symbol.setdefault(sym, []).append(rec)
+    for sym in by_symbol:
+        by_symbol[sym].sort(key=lambda r: r["trade_date"])
     return sorted(by_symbol.items(), key=lambda x: x[0])
 
 
@@ -296,6 +309,12 @@ def main() -> None:
     )
     ap.add_argument("-o", "--output", type=Path, default=DEFAULT_TRAIN_OUT, help="Training CSV path.")
     ap.add_argument("--val-output", type=Path, default=DEFAULT_VAL_OUT, help="Validation CSV path.")
+    ap.add_argument(
+        "--quotes-csv",
+        type=Path,
+        default=ROOT_DIR / "exports" / "quotes.csv",
+        help="Source quotes CSV (default: exports/quotes.csv).",
+    )
     args = ap.parse_args()
 
     train_before = _as_date(args.train_before)
@@ -309,13 +328,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.val_output.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = psycopg2.connect(DSN)
-    try:
-        cur = conn.cursor()
-        groups = load_quotes(cur, args.data_end)
-        cur.close()
-    finally:
-        conn.close()
+    groups = load_quotes_from_csv(args.quotes_csv.resolve(), args.data_end)
 
     n_train = 0
     n_val = 0

@@ -1,28 +1,28 @@
 """
-Fetch and fill content for rows in the report table where content IS NULL.
+Fetch and fill content for rows in exports/report.csv where content is empty.
 
 Page structure (Sina Finance research report):
   div.blk_container > p  (each <p> is a paragraph; <br> = newline within p)
 
-Run repeatedly to resume after interruption — only fetches rows with content IS NULL.
+Run repeatedly to resume after interruption.
 """
 
+import csv
 import time
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import psycopg2
-import psycopg2.extras
 import requests
 from bs4 import BeautifulSoup
 
+from csv_io import REPORT_CSV, update_report_content_by_url
+
 # ── config ────────────────────────────────────────────────────────────────────
-DSN              = "dbname=financial_data"
 WORKERS          = 1      # single thread to avoid rate limiting
 REQUEST_DELAY    = 2.0    # seconds between requests
 REQUEST_TIMEOUT  = 20
-BATCH_SIZE       = 50     # DB update batch size
+BATCH_SIZE       = 50     # CSV flush batch size
 MAX_RETRIES      = 2
 
 HEADERS = {
@@ -219,21 +219,32 @@ def fetch_report_worker_disk(
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    conn = psycopg2.connect(DSN)
-    conn.autocommit = False
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM report WHERE content IS NULL")
-    total = cur.fetchone()[0]
-    log.info("Rows with content IS NULL: %d", total)
-    if total == 0:
-        log.info("Nothing to do.")
-        cur.close()
-        conn.close()
+    if not REPORT_CSV.is_file():
+        log.info("Nothing to do (missing %s).", REPORT_CSV)
         return
 
-    cur.execute("SELECT url FROM report WHERE content IS NULL ORDER BY date")
-    urls = [row[0] for row in cur.fetchall()]
+    with REPORT_CSV.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        if not fieldnames or "url" not in fieldnames:
+            log.error("Invalid report CSV header.")
+            return
+        report_snapshot = list(reader)
+
+    urls: list[str] = []
+    for row in report_snapshot:
+        u = (row.get("url") or "").strip()
+        if not u:
+            continue
+        if (row.get("content") or "").strip():
+            continue
+        urls.append(u)
+
+    total = len(urls)
+    log.info("Rows with empty content: %d", total)
+    if total == 0:
+        log.info("Nothing to do.")
+        return
 
     done = 0
     failed = 0
@@ -242,12 +253,7 @@ def main():
     def flush_updates():
         if not pending_updates:
             return
-        psycopg2.extras.execute_batch(
-            cur,
-            "UPDATE report SET content = %s WHERE url = %s",
-            [(c, u) for u, c in pending_updates],
-        )
-        conn.commit()
+        update_report_content_by_url([(u, c) for u, c in pending_updates])
         pending_updates.clear()
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -265,16 +271,14 @@ def main():
             else:
                 log.info("OK  [%d/%d] chars=%d  %s", done, total, len(content), url[:80])
 
-            pending_updates.append((url, content))
+            pending_updates.append((url, content if content is not None else ""))
 
             if len(pending_updates) >= BATCH_SIZE:
                 flush_updates()
 
     flush_updates()
-    cur.close()
-    conn.close()
 
-    log.info("Done. Fetched: %d  Failed: %d  Total: %d", done - failed, failed, total)
+    log.info("Done. processed=%d transient_fail=%d total=%d", done, failed, total)
 
 
 if __name__ == "__main__":

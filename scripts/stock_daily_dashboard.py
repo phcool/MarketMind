@@ -6,10 +6,12 @@ import os
 from datetime import date
 from pathlib import Path
 
+import csv
+
 import pandas as pd
-import psycopg2
 from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
+from csv_io import COMMENTS_CSV, NEWS_CSV, QUOTES_CSV, REPORT_CSV
 from fetch_report_content import fetch_report_plaintext
 from stock_universe import load_sectors
 
@@ -20,7 +22,6 @@ except ImportError:
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 REPORT_CACHE_DIR = ROOT_DIR / "Content" / "report"
-DSN = "dbname=financial_data"
 MAX_REPORT_BODY_CHARS = 8000
 
 
@@ -108,52 +109,73 @@ STOCK_MAP = {s["id"]: s for s in STOCKS}
 
 
 def query_data(stock: dict, day_str: str) -> dict:
-    conn = psycopg2.connect(DSN)
-    cur = conn.cursor()
-
     symbol = stock["symbol"]
+    day_key = day_str[:10]
 
-    cur.execute(
-        """
-        SELECT url, post_title, publish_time, click_count, comment_count
-        FROM comments
-        WHERE symbol = %s
-          AND publish_time::date = %s::date
-        ORDER BY publish_time DESC NULLS LAST
-        LIMIT 500
-        """,
-        (symbol, day_str),
-    )
-    comments = cur.fetchall()
+    comments: list[tuple] = []
+    if COMMENTS_CSV.is_file():
+        with COMMENTS_CSV.open(encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                if (row.get("symbol") or "").strip() != symbol:
+                    continue
+                pt = (row.get("publish_time") or "").strip().replace("T", " ")[:10]
+                if pt != day_key:
+                    continue
+                comments.append(
+                    (
+                        row.get("url"),
+                        row.get("post_title"),
+                        row.get("publish_time"),
+                        row.get("click_count"),
+                        row.get("comment_count"),
+                    )
+                )
+        comments.sort(key=lambda r: (r[2] or ""), reverse=True)
+        comments = comments[:500]
 
-    cur.execute(
-        """
-        SELECT url, title, date
-        FROM news
-        WHERE symbol = %s
-          AND date = %s::date
-        ORDER BY title
-        LIMIT 500
-        """,
-        (symbol, day_str),
-    )
-    news_rows = cur.fetchall()
+    news_rows: list[tuple] = []
+    if NEWS_CSV.is_file():
+        with NEWS_CSV.open(encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                if (row.get("symbol") or "").strip() != symbol:
+                    continue
+                d = (row.get("date") or "").strip()[:10]
+                if d != day_key:
+                    continue
+                news_rows.append((row.get("url"), row.get("title"), row.get("date")))
+        news_rows.sort(key=lambda r: (r[1] or ""))
+        news_rows = news_rows[:500]
 
-    cur.execute(
-        """
-        SELECT url, title, date
-        FROM report
-        WHERE symbol = %s
-          AND date <= %s::date
-        ORDER BY date DESC NULLS LAST, title
-        LIMIT 3
-        """,
-        (symbol, day_str),
-    )
-    report_rows = cur.fetchall()
+    report_rows: list[tuple] = []
+    if REPORT_CSV.is_file():
+        try:
+            end_d = date.fromisoformat(day_key)
+        except ValueError:
+            end_d = None
+        if end_d is not None:
+            cand: list[tuple] = []
+            with REPORT_CSV.open(encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    if (row.get("symbol") or "").strip() != symbol:
+                        continue
+                    ds = (row.get("date") or "").strip()[:10]
+                    try:
+                        rd = date.fromisoformat(ds)
+                    except ValueError:
+                        continue
+                    if rd <= end_d:
+                        cand.append((row.get("url"), row.get("title"), row.get("date")))
 
-    cur.close()
-    conn.close()
+            def _rep_key(r: tuple) -> tuple:
+                ds = (r[2] or "")[:10]
+                try:
+                    od = date.fromisoformat(ds).toordinal()
+                except ValueError:
+                    od = 0
+                return (-od, r[1] or "")
+
+            cand.sort(key=_rep_key)
+            report_rows = cand[:3]
 
     return {"comments": comments, "news": news_rows, "reports": report_rows}
 
@@ -465,46 +487,64 @@ def summarize_reports_stream() -> Response:
 
 
 def _load_recent_kline(stock: dict, day_str: str, n: int = 7) -> list[dict]:
-    """Load last n trading rows from `quotes` table up to day_str (chronological order)."""
+    """Load last n trading rows from exports/quotes.csv up to day_str (chronological order)."""
     try:
         day = pd.to_datetime(day_str).date()
     except Exception:
         return []
 
     symbol = stock["symbol"]
-    conn = psycopg2.connect(DSN)
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            SELECT trade_date, open, high, low, close, pct_change, volume
-            FROM quotes
-            WHERE symbol = %s AND trade_date <= %s
-            ORDER BY trade_date DESC
-            LIMIT %s
-            """,
-            (symbol, day, n),
-        )
-        raw_rows = list(reversed(cur.fetchall()))
-    finally:
-        cur.close()
-        conn.close()
+    if not QUOTES_CSV.is_file():
+        return []
 
-    out: list[dict] = []
-    for row in raw_rows:
-        td, o, h, l, c, pct, vol = row
-        out.append(
-            {
-                "date": str(td),
-                "open": float(o) if o is not None else None,
-                "high": float(h) if h is not None else None,
-                "low": float(l) if l is not None else None,
-                "close": float(c) if c is not None else None,
-                "pct": float(pct) if pct is not None else None,
-                "volume": int(vol) if vol is not None else None,
-            }
-        )
-    return out
+    raw: list[tuple[date, dict]] = []
+    with QUOTES_CSV.open(encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            if (row.get("symbol") or "").strip() != symbol:
+                continue
+            td_s = (row.get("trade_date") or "").strip()[:10]
+            try:
+                td = date.fromisoformat(td_s)
+            except ValueError:
+                continue
+            if td > day:
+                continue
+
+            def _f(key: str) -> float | None:
+                v = row.get(key)
+                if v is None or str(v).strip() == "":
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            def _i(key: str) -> int | None:
+                v = row.get(key)
+                if v is None or str(v).strip() == "":
+                    return None
+                try:
+                    return int(float(v))
+                except ValueError:
+                    return None
+
+            raw.append(
+                (
+                    td,
+                    {
+                        "date": td.isoformat(),
+                        "open": _f("open"),
+                        "high": _f("high"),
+                        "low": _f("low"),
+                        "close": _f("close"),
+                        "pct": _f("pct_change"),
+                        "volume": _i("volume"),
+                    },
+                )
+            )
+    raw.sort(key=lambda x: x[0])
+    tail = raw[-n:] if len(raw) >= n else raw
+    return [r[1] for r in tail]
 
 
 def _predict_with_llm(stock_name: str, day_str: str, summary_text: str, kline_rows: list[dict]) -> str:
