@@ -6,8 +6,6 @@ import os
 from datetime import date
 from pathlib import Path
 
-import csv
-
 import pandas as pd
 from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
@@ -110,72 +108,84 @@ STOCK_MAP = {s["id"]: s for s in STOCKS}
 
 def query_data(stock: dict, day_str: str) -> dict:
     symbol = stock["symbol"]
-    day_key = day_str[:10]
+    day_prefix = day_str[:10]
 
     comments: list[tuple] = []
     if COMMENTS_CSV.is_file():
+        import csv as _csv
+
         with COMMENTS_CSV.open(encoding="utf-8", newline="") as f:
-            for row in csv.DictReader(f):
+            for row in _csv.DictReader(f):
                 if (row.get("symbol") or "").strip() != symbol:
                     continue
-                pt = (row.get("publish_time") or "").strip().replace("T", " ")[:10]
-                if pt != day_key:
+                pt = (row.get("publish_time") or "").strip().replace("T", " ")
+                if len(pt) < 10 or pt[:10] != day_prefix:
                     continue
                 comments.append(
                     (
-                        row.get("url"),
-                        row.get("post_title"),
-                        row.get("publish_time"),
-                        row.get("click_count"),
-                        row.get("comment_count"),
+                        (row.get("url") or "").strip(),
+                        (row.get("post_title") or "").strip(),
+                        pt,
+                        row.get("click_count") or 0,
+                        row.get("comment_count") or 0,
                     )
                 )
-        comments.sort(key=lambda r: (r[2] or ""), reverse=True)
+        comments.sort(key=lambda x: str(x[2]), reverse=True)
         comments = comments[:500]
 
     news_rows: list[tuple] = []
     if NEWS_CSV.is_file():
+        import csv as _csv
+
         with NEWS_CSV.open(encoding="utf-8", newline="") as f:
-            for row in csv.DictReader(f):
+            for row in _csv.DictReader(f):
                 if (row.get("symbol") or "").strip() != symbol:
                     continue
-                d = (row.get("date") or "").strip()[:10]
-                if d != day_key:
+                ds = (row.get("date") or "").strip()[:10]
+                if ds != day_prefix:
                     continue
-                news_rows.append((row.get("url"), row.get("title"), row.get("date")))
-        news_rows.sort(key=lambda r: (r[1] or ""))
+                news_rows.append(
+                    (
+                        (row.get("url") or "").strip(),
+                        (row.get("title") or "").strip(),
+                        ds,
+                    )
+                )
+        news_rows.sort(key=lambda x: (x[1] or ""))
         news_rows = news_rows[:500]
 
-    report_rows: list[tuple] = []
+    report_candidates: list[tuple] = []
     if REPORT_CSV.is_file():
+        import csv as _csv
+
         try:
-            end_d = date.fromisoformat(day_key)
-        except ValueError:
-            end_d = None
-        if end_d is not None:
-            cand: list[tuple] = []
-            with REPORT_CSV.open(encoding="utf-8", newline="") as f:
-                for row in csv.DictReader(f):
-                    if (row.get("symbol") or "").strip() != symbol:
-                        continue
-                    ds = (row.get("date") or "").strip()[:10]
-                    try:
-                        rd = date.fromisoformat(ds)
-                    except ValueError:
-                        continue
-                    if rd <= end_d:
-                        cand.append((row.get("url"), row.get("title"), row.get("date")))
-
-            def _rep_key(r: tuple) -> tuple:
-                ds = (r[2] or "")[:10]
+            selected = pd.to_datetime(day_str).date()
+        except Exception:
+            selected = date.today()
+        with REPORT_CSV.open(encoding="utf-8", newline="") as f:
+            for row in _csv.DictReader(f):
+                if (row.get("symbol") or "").strip() != symbol:
+                    continue
+                ds = (row.get("date") or "").strip()[:10]
+                if not ds:
+                    continue
                 try:
-                    od = date.fromisoformat(ds).toordinal()
+                    rd = date.fromisoformat(ds)
                 except ValueError:
-                    od = 0
-                return (-od, r[1] or "")
-
-            cand.sort(key=_rep_key)
-            report_rows = cand[:3]
+                    continue
+                if rd > selected:
+                    continue
+                report_candidates.append(
+                    (
+                        (row.get("url") or "").strip(),
+                        (row.get("title") or "").strip(),
+                        ds,
+                    )
+                )
+        report_candidates.sort(key=lambda x: (x[2] or ""), reverse=True)
+        report_rows = report_candidates[:3]
+    else:
+        report_rows = []
 
     return {"comments": comments, "news": news_rows, "reports": report_rows}
 
@@ -356,7 +366,7 @@ def build_news_summary_prompt(stock_name: str, day_str: str, news_rows: list[tup
     return (
         f"股票：{stock_name}\n"
         f"日期：{day_str}\n"
-        f"以下为当日新闻标题列表（数据库共{len(news_rows)}条，下列含标题共{n_listed}条）。"
+        f"以下为当日新闻标题列表（exports/news.csv 共{len(news_rows)}条，下列含标题共{n_listed}条）。"
         "每行前缀 news_id 为序号，不得编造表中不存在的 news_id。\n"
         f"{news_text}\n\n"
         "请用中文输出对当日新闻的**综合总结**（可用 markdown 小标题分段），至少包含：\n"
@@ -494,57 +504,54 @@ def _load_recent_kline(stock: dict, day_str: str, n: int = 7) -> list[dict]:
         return []
 
     symbol = stock["symbol"]
+    raw_rows: list[tuple] = []
     if not QUOTES_CSV.is_file():
         return []
 
-    raw: list[tuple[date, dict]] = []
+    import csv as _csv
+
     with QUOTES_CSV.open(encoding="utf-8", newline="") as f:
-        for row in csv.DictReader(f):
+        for row in _csv.DictReader(f):
             if (row.get("symbol") or "").strip() != symbol:
                 continue
             td_s = (row.get("trade_date") or "").strip()[:10]
+            if not td_s:
+                continue
             try:
                 td = date.fromisoformat(td_s)
             except ValueError:
                 continue
             if td > day:
                 continue
-
-            def _f(key: str) -> float | None:
-                v = row.get(key)
-                if v is None or str(v).strip() == "":
-                    return None
-                try:
-                    return float(v)
-                except ValueError:
-                    return None
-
-            def _i(key: str) -> int | None:
-                v = row.get(key)
-                if v is None or str(v).strip() == "":
-                    return None
-                try:
-                    return int(float(v))
-                except ValueError:
-                    return None
-
-            raw.append(
+            raw_rows.append(
                 (
                     td,
-                    {
-                        "date": td.isoformat(),
-                        "open": _f("open"),
-                        "high": _f("high"),
-                        "low": _f("low"),
-                        "close": _f("close"),
-                        "pct": _f("pct_change"),
-                        "volume": _i("volume"),
-                    },
+                    row.get("open"),
+                    row.get("high"),
+                    row.get("low"),
+                    row.get("close"),
+                    row.get("pct_change"),
+                    row.get("volume"),
                 )
             )
-    raw.sort(key=lambda x: x[0])
-    tail = raw[-n:] if len(raw) >= n else raw
-    return [r[1] for r in tail]
+    raw_rows.sort(key=lambda x: x[0], reverse=True)
+    raw_rows = list(reversed(raw_rows[-n:]))
+
+    out: list[dict] = []
+    for row in raw_rows:
+        td, o, h, l, c, pct, vol = row
+        out.append(
+            {
+                "date": str(td),
+                "open": float(o) if o not in (None, "") else None,
+                "high": float(h) if h not in (None, "") else None,
+                "low": float(l) if l not in (None, "") else None,
+                "close": float(c) if c not in (None, "") else None,
+                "pct": float(pct) if pct not in (None, "") else None,
+                "volume": int(float(vol)) if vol not in (None, "") else None,
+            }
+        )
+    return out
 
 
 def _predict_with_llm(stock_name: str, day_str: str, summary_text: str, kline_rows: list[dict]) -> str:

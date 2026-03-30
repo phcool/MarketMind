@@ -4,10 +4,9 @@ Fetch and fill content for rows in exports/report.csv where content is empty.
 Page structure (Sina Finance research report):
   div.blk_container > p  (each <p> is a paragraph; <br> = newline within p)
 
-Run repeatedly to resume after interruption.
+Run repeatedly to resume after interruption — only fetches rows with empty content.
 """
 
-import csv
 import time
 import logging
 import sys
@@ -16,13 +15,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from bs4 import BeautifulSoup
 
-from csv_io import REPORT_CSV, update_report_content_by_url
+from csv_io import REPORT_CSV, REPORT_FIELDNAMES, _read_csv_dicts, update_report_content_by_url
 
 # ── config ────────────────────────────────────────────────────────────────────
 WORKERS          = 1      # single thread to avoid rate limiting
 REQUEST_DELAY    = 2.0    # seconds between requests
 REQUEST_TIMEOUT  = 20
-BATCH_SIZE       = 50     # CSV flush batch size
+BATCH_SIZE       = 50     # DB update batch size
 MAX_RETRIES      = 2
 
 HEADERS = {
@@ -219,29 +218,18 @@ def fetch_report_worker_disk(
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    if not REPORT_CSV.is_file():
-        log.info("Nothing to do (missing %s).", REPORT_CSV)
-        return
-
-    with REPORT_CSV.open(encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames
-        if not fieldnames or "url" not in fieldnames:
-            log.error("Invalid report CSV header.")
-            return
-        report_snapshot = list(reader)
-
-    urls: list[str] = []
-    for row in report_snapshot:
-        u = (row.get("url") or "").strip()
+    rows = _read_csv_dicts(REPORT_CSV, REPORT_FIELDNAMES)
+    pending_urls: list[str] = []
+    for r in rows:
+        u = (r.get("url") or "").strip()
         if not u:
             continue
-        if (row.get("content") or "").strip():
+        if (r.get("content") or "").strip():
             continue
-        urls.append(u)
-
-    total = len(urls)
-    log.info("Rows with empty content: %d", total)
+        pending_urls.append(u)
+    pending_urls.sort()
+    total = len(pending_urls)
+    log.info("Rows with empty content in report.csv: %d", total)
     if total == 0:
         log.info("Nothing to do.")
         return
@@ -257,7 +245,7 @@ def main():
         pending_updates.clear()
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(worker, url): url for url in urls}
+        futures = {pool.submit(worker, url): url for url in pending_urls}
         for future in as_completed(futures):
             url, content = future.result()
             done += 1
@@ -271,14 +259,14 @@ def main():
             else:
                 log.info("OK  [%d/%d] chars=%d  %s", done, total, len(content), url[:80])
 
-            pending_updates.append((url, content if content is not None else ""))
+            pending_updates.append((url, content))
 
             if len(pending_updates) >= BATCH_SIZE:
                 flush_updates()
 
     flush_updates()
 
-    log.info("Done. processed=%d transient_fail=%d total=%d", done, failed, total)
+    log.info("Done. Fetched: %d  Failed: %d  Total: %d", done - failed, failed, total)
 
 
 if __name__ == "__main__":

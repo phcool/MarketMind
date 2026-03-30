@@ -25,6 +25,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from csv_io import QUOTES_CSV
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TRAIN_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
 DEFAULT_VAL_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_val_20260101_20260328_dataset.csv"
@@ -239,41 +241,39 @@ def build_prompt(norm: StockNormalizer, prev7: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def load_quotes_from_csv(quotes_path: Path, data_end: str) -> list[tuple[str, list[dict]]]:
-    if not quotes_path.is_file():
-        raise SystemExit(f"quotes CSV not found: {quotes_path}")
-
-    end_d = _as_date(data_end)
+def load_quotes_csv(data_end: str) -> list[tuple[str, list[dict]]]:
+    """Load quotes from exports/quotes.csv through data_end (inclusive)."""
+    end = date.fromisoformat(data_end[:10])
+    if not QUOTES_CSV.is_file():
+        return []
     by_symbol: dict[str, list[dict]] = {}
-    with quotes_path.open(encoding="utf-8", newline="") as f:
+    with QUOTES_CSV.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             sym = (row.get("symbol") or "").strip()
-            if not sym:
-                continue
-            td_raw = (row.get("trade_date") or "").strip()[:10]
-            if not td_raw:
+            td_s = (row.get("trade_date") or "").strip()[:10]
+            if not sym or not td_s:
                 continue
             try:
-                td = date.fromisoformat(td_raw)
+                td = date.fromisoformat(td_s)
             except ValueError:
                 continue
-            if td > end_d:
+            if td > end:
                 continue
             rec = {
                 "trade_date": td,
-                "open": row.get("open") or None,
-                "high": row.get("high") or None,
-                "low": row.get("low") or None,
-                "close": row.get("close") or None,
-                "volume": row.get("volume") or None,
-                "amplitude": row.get("amplitude") or None,
-                "pct_change": row.get("pct_change") or None,
-                "turnover": row.get("turnover") or None,
+                "open": row.get("open"),
+                "high": row.get("high"),
+                "low": row.get("low"),
+                "close": row.get("close"),
+                "volume": row.get("volume"),
+                "amplitude": row.get("amplitude"),
+                "pct_change": row.get("pct_change"),
+                "turnover": row.get("turnover"),
             }
             by_symbol.setdefault(sym, []).append(rec)
     for sym in by_symbol:
-        by_symbol[sym].sort(key=lambda r: r["trade_date"])
+        by_symbol[sym].sort(key=lambda x: x["trade_date"])
     return sorted(by_symbol.items(), key=lambda x: x[0])
 
 
@@ -309,12 +309,6 @@ def main() -> None:
     )
     ap.add_argument("-o", "--output", type=Path, default=DEFAULT_TRAIN_OUT, help="Training CSV path.")
     ap.add_argument("--val-output", type=Path, default=DEFAULT_VAL_OUT, help="Validation CSV path.")
-    ap.add_argument(
-        "--quotes-csv",
-        type=Path,
-        default=ROOT_DIR / "exports" / "quotes.csv",
-        help="Source quotes CSV (default: exports/quotes.csv).",
-    )
     args = ap.parse_args()
 
     train_before = _as_date(args.train_before)
@@ -328,7 +322,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.val_output.parent.mkdir(parents=True, exist_ok=True)
 
-    groups = load_quotes_from_csv(args.quotes_csv.resolve(), args.data_end)
+    groups = load_quotes_csv(args.data_end)
 
     n_train = 0
     n_val = 0

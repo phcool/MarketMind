@@ -254,9 +254,32 @@ def merge_append_comments(rows: list[tuple]) -> int:
             trimmed,
             key=lambda x: (x.get("symbol", ""), x.get("publish_time", ""), x.get("url", "")),
         )
-        if added:
+        # Write when new urls merged OR global trim removed rows (fixes legacy oversized CSV).
+        if added or len(out) < len(by_url):
             _write_csv_dicts(COMMENTS_CSV, COMMENT_FIELDNAMES, out)
         return added
+
+
+def rewrite_comments_csv_trimmed() -> tuple[int, int]:
+    """
+    Re-read exports/comments.csv and keep top COMMENTS_MAX_PER_SYMBOL_DAY rows per
+    (symbol, calendar day) by click_count. Rewrites file if row count changes.
+    Returns (row_count_before, row_count_after).
+    """
+    with _comments_lock:
+        if not COMMENTS_CSV.is_file():
+            return 0, 0
+        rows = _read_csv_dicts(COMMENTS_CSV, COMMENT_FIELDNAMES)
+        n_before = len(rows)
+        trimmed = trim_comment_rows_per_symbol_day(rows, COMMENTS_MAX_PER_SYMBOL_DAY)
+        out = sorted(
+            trimmed,
+            key=lambda x: (x.get("symbol", ""), x.get("publish_time", ""), x.get("url", "")),
+        )
+        n_after = len(out)
+        if n_after != n_before:
+            _write_csv_dicts(COMMENTS_CSV, COMMENT_FIELDNAMES, out)
+        return n_before, n_after
 
 
 def _fmt_num(x: Any) -> str:
