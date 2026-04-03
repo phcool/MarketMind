@@ -1,8 +1,14 @@
 """
 Build a single training CSV from exports/quotes.csv.
 
-Uses only rows with trade_date strictly before --train-before (default 2026-01-01).
-Per symbol, normalization is fit on that pre-cutoff series only.
+Loads all rows with trade_date < --train-before (default 2026-01-01) so that the
+7-day lookback before the first label in [--date-start, train_before) is available.
+
+Only **emits** samples whose label day (Day8) satisfies:
+  --date-start <= trade_date < --train-before  (default: 2021-01-01 .. 2026-01-01).
+
+Per symbol, normalization (min-max, z-score, etc.) is fit **only** on rows in that
+same [date-start, train_before) window.
 
 Each row: 7-day normalized K-line prompt -> label is the next day's direction:
   「涨」 if that day's pct_change >= 0, else 「跌」.
@@ -236,8 +242,8 @@ def build_prompt(norm: StockNormalizer, prev7: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def load_quotes_before(train_before: date) -> list[tuple[str, list[dict]]]:
-    """Load quotes from exports/quotes.csv with trade_date < train_before only."""
+def load_quotes_until(train_before: date) -> list[tuple[str, list[dict]]]:
+    """Load quotes with trade_date < train_before (for lookback before date-start)."""
     if not QUOTES_CSV.is_file():
         return []
     by_symbol: dict[str, list[dict]] = {}
@@ -271,6 +277,13 @@ def load_quotes_before(train_before: date) -> list[tuple[str, list[dict]]]:
     return sorted(by_symbol.items(), key=lambda x: x[0])
 
 
+def series_in_label_window(
+    series: list[dict], date_start: date, train_before: date
+) -> list[dict]:
+    """Rows used to fit normalization: date_start <= trade_date < train_before."""
+    return [r for r in series if date_start <= r["trade_date"] < train_before]
+
+
 def _as_date(d: Any) -> date:
     if isinstance(d, date):
         return d
@@ -279,12 +292,17 @@ def _as_date(d: Any) -> date:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Build 7-day K-line -> next-day 涨/跌 classification dataset (pre-cutoff only).",
+        description="Build 7-day K-line -> next-day 涨/跌 classification dataset (label days in [date-start, train_before)).",
+    )
+    ap.add_argument(
+        "--date-start",
+        default="2021-01-01",
+        help="Emit samples only when Day8 trade_date >= this (YYYY-MM-DD). Default: 2021-01-01.",
     )
     ap.add_argument(
         "--train-before",
         default="2026-01-01",
-        help="Only use quotes with trade_date < this date (YYYY-MM-DD). Labels are Day8 on the same range.",
+        help="Upper bound: trade_date < this; also end of label window. Default: 2026-01-01.",
     )
     ap.add_argument(
         "-o",
@@ -295,10 +313,14 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    date_start = _as_date(args.date_start)
     train_before = _as_date(args.train_before)
+    if date_start >= train_before:
+        raise SystemExit("--date-start must be < --train-before")
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    groups = load_quotes_before(train_before)
+    groups = load_quotes_until(train_before)
 
     n_out = 0
     with args.output.open("w", encoding="utf-8", newline="") as f_out:
@@ -308,9 +330,15 @@ def main() -> None:
         for _symbol, series in groups:
             if len(series) < 8:
                 continue
-            norm = StockNormalizer.from_series(series)
+            fit_rows = series_in_label_window(series, date_start, train_before)
+            if not fit_rows:
+                continue
+            norm = StockNormalizer.from_series(fit_rows)
             for k in range(7, len(series)):
                 target = series[k]
+                td = target["trade_date"]
+                if not (date_start <= td < train_before):
+                    continue
                 lab = pct_change_to_label(target.get("pct_change"))
                 if lab is None:
                     continue
@@ -319,7 +347,11 @@ def main() -> None:
                 w.writerow([prompt, lab])
                 n_out += 1
 
-    print(f"Wrote {n_out} rows to {args.output} (label: 涨 if pct_change>=0 else 跌)")
+    print(
+        f"Wrote {n_out} rows to {args.output} "
+        f"(label days in [{date_start.isoformat()}, {train_before.isoformat()}); "
+        "涨 if pct_change>=0 else 跌)",
+    )
 
 
 if __name__ == "__main__":

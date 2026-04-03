@@ -35,7 +35,7 @@
 
 脚本：`scripts/build_quotes_7d_dataset.py`  
 
-只读取 **`trade_date < --train-before`**（默认 `2026-01-01`）的日线；按股票**滑动窗口**（Day1–Day7 特征 → 预测 Day8）。归一化只在上述截止前的序列上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 思路一致）。
+从 `exports/quotes.csv` 读取 **`trade_date < --train-before`**（默认 `2026-01-01`）的行，以便 2021 年初样本仍有足够 **7 日回看**。**只输出**标签日（Day8）落在 **`[--date-start, --train-before)`** 的样本（默认 **2021-01-01** 至 **2026-01-01** 前一日）。**归一化统计**只在同一时间窗内的行情上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 一致）。
 
 输出**单个** UTF-8 CSV，列 **`prompt`, `label`**：`label` 为「涨」或「跌」——若 Day8 当日 `pct_change >= 0` 为「涨」，否则为「跌」。Prompt 要求模型**只输出**「涨」或「跌」。
 
@@ -44,7 +44,24 @@
 ```bash
 python scripts/build_quotes_7d_dataset.py
 python scripts/build_quotes_7d_dataset.py -o train/dataset/my_train.csv
-python scripts/build_quotes_7d_dataset.py --train-before 2026-01-01
+python scripts/build_quotes_7d_dataset.py --date-start 2021-01-01 --train-before 2026-01-01
+```
+
+### 批量思维链（qwen3-max，百炼 Batch API）
+
+脚本：`scripts/batch_qwen_cot_quotes_dataset.py`  
+
+将数据集中的 **`prompt` + `label`** 封装为新 user 消息：展示原 K 线任务、**给出标准答案（涨/跌）**，要求模型在 **【思维链开始】…【思维链结束】** 之间写推理，最后**单独一行**输出与标准答案一致的「涨」或「跌」。生成符合 [`docs/Qwen_Batch_Call.md`](docs/Qwen_Batch_Call.md) 的 JSONL。依赖 **`openai`** SDK；环境变量 **`DASHBOARD_API_KEY` 或 `DASHSCOPE_API_KEY`**（与 `DASHSCOPE_BASE_URL`，默认北京兼容端点；会读取项目根目录 `.env`）。**单次在线试跑**（随机抽一条、同模版调用 `qwen3-max`）：`scripts/sample_qwen_cot_one.py`。
+
+**命令（两步）**：① **无参数**：从默认 `train/dataset/quotes_7d_pre2026_dataset.csv` 生成 `batch/cot_qwen_batch_input.jsonl`，上传 Batch 任务并写入 `batch/cot_qwen_batch_state.json`（不阻塞等待）。② **`--check-status`**：**只查一次**远端状态；若尚未结束则打印当前状态后退出，若已完成则下载 `batch/cot_qwen_batch_result.jsonl` 并合并为 **`train/dataset/quotes_7d_cot_from_batch.csv`**（列 `prompt`：思维链版任务说明；`completion`：模型全文）。试跑子集可设环境变量 **`BATCH_COT_LIMIT`** / **`BATCH_COT_OFFSET`**（仅第一步有效）。
+
+```bash
+pip install openai
+python scripts/sample_qwen_cot_one.py
+# Step 1: build JSONL + submit batch (see batch/cot_qwen_batch_state.json)
+python scripts/batch_qwen_cot_quotes_dataset.py
+# Step 2: one-shot status; when completed, download + merge CSV (repeat until done)
+python scripts/batch_qwen_cot_quotes_dataset.py --check-status
 ```
 
 ### GRPO 强化学习训练（Qwen2.5-7B-Instruct）

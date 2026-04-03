@@ -14,7 +14,7 @@
 | **News** | 当日新闻标题与正文 |
 | **Report** | 卖方/机构研报 |
 
-在分别得到三类**结构化总结**后，再调用大模型做**未来股价走向**的综合判断；长期希望通过**强化学习（或与人类反馈结合的训练）**提升预测与总结质量。
+在分别得到三类**结构化总结**后，再调用大模型做**未来股价走向**的综合判断。行情侧预测任务已从「对精确涨跌幅做 GRPO 回归」调整为「**涨跌二分类**」监督（见 §10），因回归式 RL 在本数据上难以稳定训练。
 
 ---
 
@@ -82,16 +82,17 @@
 
 ---
 
-## 6. 强化学习与效果迭代（规划）
+## 6. 模型迭代与监督信号（规划）
 
 「让模型给出更好结果」在工程上可拆为：
 
 - **数据**：保留 `(输入快照, 模型输出, 后续真实走势标签或人工评分)`，形成训练或对齐用的样本。
 - **方法（概念选型）**：
-  - **基于人类反馈的微调（RLHF/DPO 等）**：用排序或打分信号更新策略，使输出更符合投资可读性与校准度。
-  - **或与预测误差相关的奖励**：在合规与可解释前提下，用事后收益/波动构造弱奖励信号（需注意过拟合与分布外风险）。
+  - **监督微调 / 分类**：当前行情预测以 **涨/跌** 标签为主（见 §9、`build_quotes_7d_dataset.py`），目标更稳定、可评估。
+  - **基于人类反馈的微调（RLHF/DPO 等）**：可用于总结类任务的可读性与校准；**不推荐**在「精确预测涨跌幅数值」上继续用 GRPO 式稀疏奖励（原因见 §10）。
+  - 若使用与预测误差相关的奖励，需注意过拟合与分布外风险。
 
-实施顺序建议：先跑通**可复现的批处理管线 + 统一 schema**，再小规模收集反馈或标签，最后再接 RL/对齐训练，避免在数据未闭环时过早训练。
+实施顺序建议：先跑通**可复现的批处理管线 + 统一 schema**，再小规模收集反馈或标签；**行情数值回归 + GRPO** 已在实验中弃用（§10）。
 
 ---
 
@@ -131,8 +132,8 @@ flowchart LR
 
   subgraph future [未来]
     PRED --> LOG[日志与标签]
-    LOG --> RL[RL / 对齐训练]
-    RL -.-> PRED
+    LOG --> FT[监督微调 / 对齐]
+    FT -.-> PRED
   end
 ```
 
@@ -145,31 +146,32 @@ flowchart LR
 | Comments 流式总结 | `stock_daily_dashboard.py` → `/summarize_stream` |
 | News 标题总结 + Top ids | 同文件 → `/summarize_news_stream` |
 | News 正文二阶段、Report 近 2 篇、统一预测 | 待实现：可拆为独立脚本或服务，与 dashboard 共用 prompt 与 schema |
-| Quotes → GRPO（涨跌幅预测） | `train/train_grpo_qwen.py` + `train/run_grpo_8gpu.sh`；数据见 §9，算法与 vLLM 见 §10 |
+| Quotes → 涨跌分类数据集 | `scripts/build_quotes_7d_dataset.py` → `train/dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
+| （历史）Quotes → GRPO 涨跌幅回归 | 仓库仍保留 `train/train_grpo_qwen.py` 等，**不作为当前推荐路径**；见 §10 |
 
 ---
 
 ## 9. Quotes 七日 K 线 prompt 数据集（`build_quotes_7d_dataset.py`）
 
-用于从 PostgreSQL `quotes` 表导出 **训练集 + 验证集** 两路两列 CSV：`prompt`（中文指令 + 7 日特征描述）、`pct_change`（第 8 个交易日真实涨跌幅，单位 %，未归一化）。
+从 **`exports/quotes.csv`** 生成**单一** UTF-8 CSV，列 **`prompt`, `label`**：
+
+- **`prompt`**：中文说明 + 连续 7 个交易日（Day1…Day7）的归一化 K 线描述 + 任务尾段，要求模型**只输出**下一交易日（Day8）的 **「涨」或「跌」**。
+- **`label`**：Day8 当日真实方向——`pct_change >= 0` 为 **「涨」**，否则为 **「跌」**；缺 `pct_change` 的样本丢弃。
+
+从 `exports/quotes.csv` 读取 **`trade_date < train_before`**（默认 `2026-01-01`），以保证标签窗口起点（默认 `2021-01-01`）之前的 **7 个交易日** 可作特征。**仅输出**标签日满足 **`date_start <= trade_date < train_before`** 的样本（默认 **2021-01-01 ≤ Day8 < 2026-01-01**）。不再划分验证集。默认输出：`train/dataset/quotes_7d_pre2026_dataset.csv`（可用 `-o` 指定）。
 
 ### 9.1 数据筛选与滑动窗口
 
-1. **SQL**：`trade_date <= data_end`（默认 `2026-03-28`），按 `symbol`、`trade_date` 升序拉取 `open, high, low, close, volume, amplitude, pct_change, turnover`。验证区间内的 K 线也会进入库表，因此能覆盖「标签日在 2026 年但特征窗部分落在 2025」的样本。
+1. **读取**：保留 `trade_date < train_before` 的行，按 `symbol`、`trade_date` 升序。
 2. **按股票分组**：每个 `symbol` 一条时间序列；日历非交易日自然跳过，只保留**顺序上的相邻交易日**。
-3. **样本**：对长度为 `n` 的序列，每个索引 `k ∈ [7, n-1]` 考察标签日 `trade_date(k)`：
-   - **特征窗口**：第 `k-7` … `k-1` 共 7 根 K 线，在 prompt 中记为 **Day1（最早）… Day7（最近）**。
-   - **标签**：第 `k` 根 K 线的 `pct_change`（即「Day8」）。若标签为 `NULL` 则丢弃该行。
-   - **训练集**：`trade_date(k) < train_before`（默认 `train_before = 2026-01-01`）。
-   - **验证集**：`val_start <= trade_date(k) <= val_end`（默认 `2026-01-01` … `2026-03-28`）。
-   - 若 `train_before > val_start` 则报错（避免训练/验证标签日重叠）；若 `train_before < val_start`，则中间日期的样本**不写**入任一文件。
-4. **最短序列**：不足 8 根 K 线的股票不产生样本。
+3. **样本**：对长度为 `n` 的序列，每个索引 `k ∈ [7, n-1]`，且 **`date_start <= trade_date(k) < train_before`**：
+   - **特征窗口**：第 `k-7` … `k-1` 共 7 根 K 线 → Day1 … Day7（可早于 `date_start`）。
+   - **标签日**：第 `k` 根 K 线，对应 **Day8**；用其 `pct_change` 映射为 `label` ∈ {涨, 跌}。
+4. **最短序列**：不足 8 根 K 线的股票不产生样本；在 `[date_start, train_before)` 内无行情的股票跳过。
 
-### 9.2 每只股票内的归一化（训练 + 验证合并估计）
+### 9.2 每只股票内的归一化（仅在标签窗口内估计）
 
-对**该股票**在 **`trade_date <= data_end` 的全部行情行**上计算一套标量统计量；**训练集与验证集共用同一套 scaler**（即把两段区间内的数据放在一起估计 min/max、log-volume 范围、涨跌幅均值方差等）。同一只股票的所有样本共用这一统计量。
-
-注意：验证段参与估计会带来**标签日之前的特征已隐含未来分布信息**的泄漏；若要做严格 walk-forward，应改为仅用截至各样本标签日前一日（或仅训练段）估计 scaler。
+对**该股票**在 **`date_start <= trade_date < train_before`** 的行情行上计算一套标量统计量；**同一只股票的所有样本共用**这一统计量。若需严格 walk-forward，可改为仅用「标签日前一日及之前」的历史估计 scaler（当前实现未做）。
 
 | 字段 | 规则 |
 |------|------|
@@ -187,61 +189,52 @@ flowchart LR
 ### 9.3 Prompt 拼装
 
 1. 一段固定**中文说明**（简述上述归一化含义）。
-2. 连续 7 行 `Day{i}: open=…, high=…, …`（数值为归一化或 Z-score 后的浮点字符串，`pct_change` 为带符号的 z 值）。
-3. 固定**任务尾段**：要求分析趋势与成交、预测 Day8 收盘涨跌幅（%），且仅在最后一行输出预测值。
+2. 连续 7 行 `Day{i}: open=…, high=…, …`（数值为归一化或 Z-score 后的浮点字符串）。
+3. 固定**任务尾段**：只预测下一交易日涨/跌，且**只输出一个字**「涨」或「跌」。
 
 ### 9.4 写出
 
-- **格式**：UTF-8 CSV，表头 `prompt`, `pct_change`；`prompt` 含换行，由 CSV 引号转义。
-- **默认路径**：训练 `exports/quotes_7d_pre2026_dataset.csv`（`-o`）；验证 `exports/quotes_7d_val_20260101_20260328_dataset.csv`（`--val-output`）。
-- **连接**：`PG_DSN` 环境变量，缺省 `dbname=financial_data`。
-- **常用参数**：`--data-end`、`--train-before`、`--val-start`、`--val-end` 与上述逻辑对应。
+- **格式**：UTF-8 CSV，表头 `prompt`, `label`；`prompt` 含换行，由 CSV 引号转义。
+- **数据源**：`exports/quotes.csv`（无 PostgreSQL 依赖）。
 
 ---
 
-## 10. GRPO 强化学习训练（Qwen2.5-7B + TRL + DeepSpeed + vLLM）
+## 10. 训练策略：为何不再采用「涨跌幅数值 + GRPO」
 
-在 §9 产出的 CSV 上，对 **Qwen2.5-7B-Instruct** 做 **GRPO**（Group Relative Policy Optimization，TRL `GRPOTrainer`）。工程上采用 **Accelerate + DeepSpeed ZeRO-3** 做多卡训练权重与优化器状态分片，**rollout 阶段默认走 vLLM** 以拉高生成吞吐。
+### 10.1 现象与结论
 
-### 10.1 脚本与配置入口
+此前在 **同一类 7 日 K 线 prompt** 上，用 **GRPO** 对模型生成的 **下一日涨跌幅数值** 与标签 `pct_change` 做 **`exp(-|pred-label|/100)`** 式奖励时，训练曲线出现典型**失效形态**，见 **`docs/reward_loss_vs_step.png`**（训练曲线，来自完整 `output.log`）：
+
+- **Mean reward**：在约 0.75～0.95 之间**剧烈波动**，无明显上升或收敛，更像噪声而非策略改进。
+- **Loss**：在约第 20 step 后**长时间恒为 0**（图中水平为 0 的线段）。
+
+### 10.2 原因说明（与 GRPO 机制一致）
+
+- **涨跌幅度（连续数值）**在噪声极大的日频行情上是一个**极难收敛的目标**；组内多条 completion 的 reward 往往接近，模型容易**退化为总是输出相近或固定的数值**。
+- 一旦同组内各条输出的 reward **几乎相同**，**组内相对优势（Advantage）** 趋近于 **0**；策略梯度项消失，**有效 loss 为 0**，优化器**不再产生有意义的参数更新**，表现为「训练停滞」。
+- 因此，**不再将「精确预测涨跌幅」作为当前主线的 RL 目标**；改为 §9 的 **涨/跌二分类** 标签，便于监督学习或分类损失，目标更明确、可评估。
+
+### 10.3 历史 GRPO 实现（仓库仍保留，仅供参考）
+
+以下描述 **旧版** `train/train_grpo_qwen.py` 等脚本的设计，**与当前推荐的 `prompt` + `label` 数据集不一致**；若需复现实验，需自行改数据列与 reward。
+
+在旧版 **两列 `prompt`, `pct_change`** 的 CSV 上，对 **Qwen2.5-7B-Instruct** 做 **GRPO**（TRL `GRPOTrainer`），配合 **Accelerate + DeepSpeed ZeRO-3** 与 **vLLM rollout**。
 
 | 路径 | 作用 |
 |------|------|
 | `train/train_grpo_qwen.py` | 读 `prompt` / `pct_change`，套 Qwen chat template，构造 `GRPOTrainer` |
 | `train/run_grpo_8gpu.sh` | 仓库根目录执行 `accelerate launch`（默认 8 进程） |
 | `train/accelerate_deepspeed_zero3.yaml` | `distributed_type: DEEPSPEED`，`num_processes: 8`，引用 `train/ds_zero3.json` |
-| `train/ds_zero3.json` | ZeRO-3、`bf16`；batch / micro-batch 等由 Accelerate 与 Trainer `auto` 对齐 |
-| `train/requirements.txt` | 含 `trl[vllm]`（安装 vLLM 及 TRL 推理依赖） |
+| `train/ds_zero3.json` | ZeRO-3、`bf16` 等 |
+| `train/requirements.txt` | 含 `trl[vllm]` |
 
-默认训练数据：`train/dataset/quotes_7d_pre2026_dataset.csv`；验证集 CSV 可用于离线评估或改脚本挂 `eval_dataset`（当前脚本以训练集为主）。
+**旧 reward（与实现对齐）**：从 completion 最后一行解析浮点预测，与 `pct_change` 算 `diff = |pred - label|`，`reward = exp(-(diff/100))`；解析失败则 reward = 0。
 
-### 10.2 Reward 设计（与实现对齐）
-
-对每条 rollout 的 **completion**：
-
-1. 取**最后一条非空行**，去掉 `%`，正则抽取**第一个浮点数**作为模型预测的涨跌幅数值（百分点，与是否带百分号无关）。
-2. 与样本标签 `pct_change`（同一数值尺度）算 **`diff = |pred - label|`**。
-3. **`reward = exp(-(diff / 100))`**（`diff` 以百分点为单位，除以 100 后进入指数）。
-4. 若无法解析出浮点数：**reward = 0**。
-
-TRL 在同一 prompt 的 **G 条 completion**（`num_generations`）上算 reward，再做组内相对优势（减组内均值、除以组内标准差等，见 GRPO 原论文与 TRL 默认）。
-
-### 10.3 vLLM 两种模式
-
-- **`colocate`（默认）**：vLLM 与训练进程**同卡共存**，由 TRL 在优化步与生成步之间调度显存；通过 `vllm_gpu_memory_utilization`、`vllm_tensor_parallel_size` 控制占用。适合**单机多卡**（如 8×GPU + ZeRO-3），无需另起服务。
-- **`server`**：另起 **`trl vllm-serve`**（或兼容的 OpenAI 式 vLLM 服务），训练进程只作为客户端；通过 `vllm_server_base_url` 或 `host`+`port` 连接。**必须**保证推理占用的 GPU 与 DeepSpeed 训练进程**不冲突**（常见做法：独立节点或划分 `CUDA_VISIBLE_DEVICES`），否则易出现 NCCL / OOM 问题。
-
-训练脚本默认 **`use_vllm=True`、`vllm_mode=colocate`**；调试可传 `--no_vllm` 回退到 `generate()`。
-
-### 10.4 训练–推理不一致与 TRL 默认对策
-
-vLLM 与 HF 训练栈在数值路径上不完全一致，会形成 off-policy 偏差。TRL 对 vLLM rollout 默认启用 **Truncated Importance Sampling（TIS）** 等校正（详见 TRL 文档 *Training-Inference Mismatch*）。调参时若不稳定，可降低学习率、`num_generations`，或调整 `vllm_gpu_memory_utilization`。
-
-### 10.5 数据流简图
+**vLLM 模式**：`colocate`（与训练同机）或 `server`（独立服务）；详见脚本与 TRL 文档。
 
 ```mermaid
 flowchart LR
-  CSV[quotes_7d CSV] --> DS[Dataset prompt + pct_change]
+  CSV[quotes_7d 旧版 CSV] --> DS[Dataset prompt + pct_change]
   DS --> T[GRPOTrainer]
   M[Qwen2.5-7B] --> T
   T --> V[vLLM rollout]

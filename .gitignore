@@ -3,4 +3,5 @@
 exports/
 train/outputs/
 *.csv
+*.jsonl
 *.pyc
