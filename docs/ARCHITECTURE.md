@@ -147,7 +147,7 @@ flowchart LR
 | News 标题总结 + Top ids | 同文件 → `/summarize_news_stream` |
 | News 正文二阶段、Report 近 2 篇、统一预测 | 待实现：可拆为独立脚本或服务，与 dashboard 共用 prompt 与 schema |
 | Quotes → 涨跌分类数据集 | `scripts/build_quotes_7d_dataset.py` → `train/dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
-| （历史）Quotes → GRPO 涨跌幅回归 | 仓库仍保留 `train/train_grpo_qwen.py` 等，**不作为当前推荐路径**；见 §10 |
+| （历史）Quotes → GRPO 涨跌幅回归 | 仓库仍保留 `train/scripts/grpo/train_grpo_qwen.py` 等，**不作为当前推荐路径**；见 §10 |
 
 ---
 
@@ -216,16 +216,16 @@ flowchart LR
 
 ### 10.3 历史 GRPO 实现（仓库仍保留，仅供参考）
 
-以下描述 **旧版** `train/train_grpo_qwen.py` 等脚本的设计，**与当前推荐的 `prompt` + `label` 数据集不一致**；若需复现实验，需自行改数据列与 reward。
+以下描述 **旧版** `train/scripts/grpo/train_grpo_qwen.py` 等脚本的设计，**与当前推荐的 `prompt` + `label` 数据集不一致**；若需复现实验，需自行改数据列与 reward。
 
 在旧版 **两列 `prompt`, `pct_change`** 的 CSV 上，对 **Qwen2.5-7B-Instruct** 做 **GRPO**（TRL `GRPOTrainer`），配合 **Accelerate + DeepSpeed ZeRO-3** 与 **vLLM rollout**。
 
 | 路径 | 作用 |
 |------|------|
-| `train/train_grpo_qwen.py` | 读 `prompt` / `pct_change`，套 Qwen chat template，构造 `GRPOTrainer` |
-| `train/run_grpo_8gpu.sh` | 仓库根目录执行 `accelerate launch`（默认 8 进程） |
-| `train/accelerate_deepspeed_zero3.yaml` | `distributed_type: DEEPSPEED`，`num_processes: 8`，引用 `train/ds_zero3.json` |
-| `train/ds_zero3.json` | ZeRO-3、`bf16` 等 |
+| `train/scripts/grpo/train_grpo_qwen.py` | 读 `prompt` / `pct_change`，套 Qwen chat template，构造 `GRPOTrainer` |
+| `train/scripts/launch/run_grpo_8gpu.sh` | 仓库根目录执行 `accelerate launch`（默认 8 进程） |
+| `train/configs/accelerate/deepspeed_zero3.yaml` | `distributed_type: DEEPSPEED`，`num_processes: 8`，引用 `train/configs/deepspeed/zero3.json` |
+| `train/configs/deepspeed/zero3.json` | ZeRO-3、`bf16` 等 |
 | `train/requirements.txt` | 含 `trl[vllm]` |
 
 **旧 reward（与实现对齐）**：从 completion 最后一行解析浮点预测，与 `pct_change` 算 `diff = |pred - label|`，`reward = exp(-(diff/100))`；解析失败则 reward = 0。

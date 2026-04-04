@@ -3,7 +3,7 @@ Sample N prompts from the GRPO CSV with the same chat template + truncation as t
 run HF generate(), and write JSON for inspecting completion format vs reward parsing.
 
 Usage (from repo root):
-  python train/sample_grpo_generations.py --output_json train/outputs/grpo_sample_generations.json
+  python train/scripts/grpo/sample_grpo_generations.py --output_json train/outputs/grpo_sample_generations.json
 
 Requires: transformers, torch, datasets (GPU recommended for 7B).
 """
@@ -21,8 +21,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent
-DEFAULT_TRAIN_CSV = REPO_ROOT / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
+TRAIN_DIR = SCRIPT_DIR.parents[2]
+DEFAULT_TRAIN_CSV = TRAIN_DIR / "dataset" / "quotes_7d_pre2026_dataset.csv"
 
 _FLOAT_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
@@ -66,7 +66,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--model_name_or_path", default="Qwen/Qwen2.5-7B-Instruct")
     p.add_argument("--train_file", type=str, default=str(DEFAULT_TRAIN_CSV))
-    p.add_argument("--output_json", type=str, default=str(SCRIPT_DIR / "outputs" / "grpo_sample_generations.json"))
+    p.add_argument("--output_json", type=str, default=str(TRAIN_DIR / "outputs" / "grpo_sample_generations.json"))
     p.add_argument("--num_prompts", type=int, default=10)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max_prompt_length", type=int, default=6144)

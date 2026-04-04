@@ -66,7 +66,7 @@ python scripts/batch_qwen_cot_quotes_dataset.py --check-status
 
 ### GRPO 强化学习训练（Qwen2.5-7B-Instruct）
 
-使用 **Hugging Face TRL** 的 **GRPO** + **Accelerate + DeepSpeed ZeRO-3**，默认 **8 卡**（`CUDA_VISIBLE_DEVICES` 可改）。**Rollout 默认启用 vLLM**（`vllm_mode=colocate`，与训练同机共享 GPU；依赖 `trl[vllm]`）。入口：`train/train_grpo_qwen.py`；启动：`train/run_grpo_8gpu.sh`；DeepSpeed：`train/ds_zero3.json`；Accelerate：`train/accelerate_deepspeed_zero3.yaml`。架构与 reward 细节见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) **§10**。
+使用 **Hugging Face TRL** 的 **GRPO** + **Accelerate + DeepSpeed ZeRO-3**，默认 **8 卡**（`CUDA_VISIBLE_DEVICES` 可改）。**Rollout 默认启用 vLLM**（`vllm_mode=colocate`，与训练同机共享 GPU；依赖 `trl[vllm]`）。入口：`train/scripts/grpo/train_grpo_qwen.py`；启动：`train/scripts/launch/run_grpo_8gpu.sh`；DeepSpeed：`train/configs/deepspeed/zero3.json`；Accelerate：`train/configs/accelerate/deepspeed_zero3.yaml`。架构与 reward 细节见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) **§10**。
 
 **数据**：`train_grpo_qwen.py` 当前示例仍按 **`prompt` + `pct_change`（回归）** 设计；若改用上述「涨/跌」数据集，需自行调整数据列与 reward（例如分类准确率）。
 
@@ -75,7 +75,7 @@ python scripts/batch_qwen_cot_quotes_dataset.py --check-status
 ```bash
 pip install -r train/requirements.txt
 # 可选：huggingface-cli login
-bash train/run_grpo_8gpu.sh
+bash train/scripts/launch/run_grpo_8gpu.sh
 # 关闭 vLLM（慢，仅调试）：加 --no_vllm
 # 独立 vLLM 服务：trl vllm-serve ... 后 train_grpo_qwen.py --vllm_mode server --vllm_server_base_url http://...
 ```

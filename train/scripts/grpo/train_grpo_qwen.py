@@ -5,7 +5,7 @@ Rollout uses vLLM by default (colocate with training on the same GPUs; TRL + ZeR
 Reward: parse last line as `pct_change_prediction: <float>%` (or fallback: bare number); reward = exp(-abs(pred-label)/100); else 0.
 
 Launch (8 GPUs, DeepSpeed ZeRO-3 + vLLM colocate):
-  cd <repo_root> && bash train/run_grpo_8gpu.sh
+  cd <repo_root> && bash train/scripts/launch/run_grpo_8gpu.sh
 
 Checkpointing: --resume_from_checkpoint auto (default) continues from the latest checkpoint-* under
 output_dir when present. With validation CSV, eval runs every --eval_steps on a random subset of the val
@@ -30,9 +30,10 @@ from transformers import AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent
-DEFAULT_TRAIN_CSV = REPO_ROOT / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
-DEFAULT_VAL_CSV = REPO_ROOT / "train" / "dataset" / "quotes_7d_val_20260101_20260328_dataset.csv"
+TRAIN_DIR = SCRIPT_DIR.parents[2]
+REPO_ROOT = SCRIPT_DIR.parents[3]
+DEFAULT_TRAIN_CSV = TRAIN_DIR / "dataset" / "quotes_7d_pre2026_dataset.csv"
+DEFAULT_VAL_CSV = TRAIN_DIR / "dataset" / "quotes_7d_val_20260101_20260328_dataset.csv"
 
 _LOG = logging.getLogger(__name__)
 
