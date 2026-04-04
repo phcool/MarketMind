@@ -38,7 +38,16 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_DIR = SCRIPT_DIR.parents[2]
 REPO_ROOT = SCRIPT_DIR.parents[3]
 DEFAULT_TRAIN_FILE = TRAIN_DIR / "dataset" / "quotes_7d_cot_from_batch.csv"
-DEFAULT_OUTPUT_DIR = TRAIN_DIR / "outputs" / "qwen2_5_sft_cot_lora"
+
+
+def _default_hf_output_dir() -> Path:
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        return Path(hf_home).expanduser() / "models" / "qwen2_5_sft_cot_lora"
+    return Path("/nfs/hanpeng/huggingface/models/qwen2_5_sft_cot_lora")
+
+
+DEFAULT_OUTPUT_DIR = _default_hf_output_dir()
 
 LOG = logging.getLogger(__name__)
 
