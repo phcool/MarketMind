@@ -17,13 +17,17 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
+import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from datasets import Dataset, load_dataset
+from datasets import Dataset, load_dataset, load_from_disk
 from peft import LoraConfig, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
@@ -35,8 +39,8 @@ from transformers import (
 )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-TRAIN_DIR = SCRIPT_DIR.parents[2]
-REPO_ROOT = SCRIPT_DIR.parents[3]
+TRAIN_DIR = SCRIPT_DIR.parents[1]
+REPO_ROOT = SCRIPT_DIR.parents[2]
 DEFAULT_TRAIN_FILE = TRAIN_DIR / "dataset" / "quotes_7d_cot_from_batch.csv"
 
 
@@ -50,6 +54,23 @@ def _default_hf_output_dir() -> Path:
 DEFAULT_OUTPUT_DIR = _default_hf_output_dir()
 
 LOG = logging.getLogger(__name__)
+
+
+def _rank() -> int:
+    return int(os.environ.get("RANK", "0"))
+
+
+def _world_size() -> int:
+    return int(os.environ.get("WORLD_SIZE", "1"))
+
+
+def _is_rank_zero() -> bool:
+    return _rank() == 0
+
+
+def _log_rank_zero(message: str, *args) -> None:
+    if _is_rank_zero():
+        LOG.info(message, *args)
 
 
 def _resolve_resume_from_checkpoint(resume: str, output_dir: str) -> bool | str | None:
@@ -83,6 +104,37 @@ def _load_csv_dataset(path: str) -> Dataset:
     return ds
 
 
+def _inspect_csv_records(path: str) -> dict[str, int]:
+    records = 0
+    prompt_min = None
+    prompt_max = 0
+    completion_min = None
+    completion_max = 0
+    csv_path = Path(path).expanduser()
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        expected = {"prompt", "completion"}
+        actual = set(reader.fieldnames or [])
+        missing = expected - actual
+        if missing:
+            raise SystemExit(f"CSV missing required columns {sorted(missing)}; found {reader.fieldnames}")
+        for row in reader:
+            records += 1
+            prompt_len = len(str(row["prompt"]))
+            completion_len = len(str(row["completion"]))
+            prompt_min = prompt_len if prompt_min is None else min(prompt_min, prompt_len)
+            prompt_max = max(prompt_max, prompt_len)
+            completion_min = completion_len if completion_min is None else min(completion_min, completion_len)
+            completion_max = max(completion_max, completion_len)
+    return {
+        "records": records,
+        "prompt_min_chars": int(prompt_min or 0),
+        "prompt_max_chars": int(prompt_max),
+        "completion_min_chars": int(completion_min or 0),
+        "completion_max_chars": int(completion_max),
+    }
+
+
 def _prepare_datasets(
     train_file: str,
     eval_file: str,
@@ -96,6 +148,108 @@ def _prepare_datasets(
         return train_ds, None
     split = train_ds.train_test_split(test_size=eval_ratio, seed=seed, shuffle=True)
     return split["train"], split["test"]
+
+
+def _build_tokenized_cache_root(
+    output_dir: str,
+    model_name_or_path: str,
+    train_file: str,
+    eval_file: str,
+    eval_ratio: float,
+    max_seq_length: int,
+) -> Path:
+    payload = {
+        "model_name_or_path": model_name_or_path,
+        "train_file": str(Path(train_file).resolve()),
+        "eval_file": eval_file,
+        "eval_ratio": float(eval_ratio),
+        "max_seq_length": int(max_seq_length),
+    }
+    digest = hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    return Path(output_dir) / ".cache" / "tokenized_sft" / digest
+
+
+def _wait_for_rank_zero_cache(ready_file: Path, error_file: Path, timeout_seconds: int = 7200) -> None:
+    start = time.time()
+    while True:
+        if ready_file.exists():
+            return
+        if error_file.exists():
+            raise RuntimeError(error_file.read_text(encoding="utf-8"))
+        elapsed = time.time() - start
+        if elapsed > timeout_seconds:
+            raise TimeoutError(
+                f"Timed out after {timeout_seconds}s waiting for tokenized dataset cache at {ready_file.parent}"
+            )
+        if int(elapsed) % 60 == 0:
+            LOG.info("Rank %s still waiting for tokenized dataset cache at %s", _rank(), ready_file.parent)
+        time.sleep(5)
+
+
+def _tokenize_datasets_once(
+    train_dataset: Dataset,
+    eval_dataset: Dataset | None,
+    preprocess,
+    *,
+    output_dir: str,
+    model_name_or_path: str,
+    train_file: str,
+    eval_file: str,
+    eval_ratio: float,
+    max_seq_length: int,
+) -> tuple[Dataset, Dataset | None]:
+    cache_root = _build_tokenized_cache_root(
+        output_dir=output_dir,
+        model_name_or_path=model_name_or_path,
+        train_file=train_file,
+        eval_file=eval_file,
+        eval_ratio=eval_ratio,
+        max_seq_length=max_seq_length,
+    )
+    train_dir = cache_root / "train"
+    eval_dir = cache_root / "eval"
+    ready_file = cache_root / "READY"
+    error_file = cache_root / "ERROR"
+
+    if ready_file.exists() and train_dir.is_dir():
+        _log_rank_zero("Loading tokenized datasets from cache: %s", cache_root)
+        cached_train = load_from_disk(str(train_dir))
+        cached_eval = load_from_disk(str(eval_dir)) if eval_dir.is_dir() else None
+        return cached_train, cached_eval
+
+    if _is_rank_zero():
+        cache_root.mkdir(parents=True, exist_ok=True)
+        _log_rank_zero("Tokenizing datasets into cache: %s", cache_root)
+        try:
+            cached_train = train_dataset.map(
+                preprocess,
+                remove_columns=train_dataset.column_names,
+                desc="Tokenizing train dataset",
+            )
+            tmp_train_dir = cache_root / f"train.tmp-{os.getpid()}"
+            cached_train.save_to_disk(str(tmp_train_dir))
+            os.replace(tmp_train_dir, train_dir)
+
+            cached_eval = None
+            if eval_dataset is not None:
+                cached_eval = eval_dataset.map(
+                    preprocess,
+                    remove_columns=eval_dataset.column_names,
+                    desc="Tokenizing eval dataset",
+                )
+                tmp_eval_dir = cache_root / f"eval.tmp-{os.getpid()}"
+                cached_eval.save_to_disk(str(tmp_eval_dir))
+                os.replace(tmp_eval_dir, eval_dir)
+
+            ready_file.write_text("ok\n", encoding="utf-8")
+            return cached_train, cached_eval
+        except Exception as exc:
+            error_file.write_text(f"Rank 0 failed while tokenizing datasets: {exc}\n", encoding="utf-8")
+            raise
+
+    LOG.info("Rank %s waiting for rank 0 to prepare tokenized datasets at %s", _rank(), cache_root)
+    _wait_for_rank_zero_cache(ready_file, error_file)
+    return load_from_disk(str(train_dir)), load_from_disk(str(eval_dir)) if eval_dir.is_dir() else None
 
 
 def _tokenize_example(
@@ -242,8 +396,33 @@ def main() -> None:
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         level=logging.INFO,
+        force=True,
     )
     set_seed(args.seed)
+
+    train_path = Path(args.train_file).expanduser()
+    if not train_path.is_file():
+        raise SystemExit(f"Training file not found: {train_path}")
+
+    output_dir = Path(args.output_dir).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    _log_rank_zero("Starting LoRA SFT")
+    _log_rank_zero("Train file: %s", train_path)
+    _log_rank_zero("Eval file: %s", args.eval_file)
+    _log_rank_zero("Output dir: %s", output_dir)
+    _log_rank_zero("Model: %s", args.model_name_or_path)
+    _log_rank_zero("World size (env): %s", _world_size())
+    train_inspection = _inspect_csv_records(str(train_path))
+    _log_rank_zero(
+        "Train CSV inspection: records=%s prompt_chars=%s..%s completion_chars=%s..%s",
+        train_inspection["records"],
+        train_inspection["prompt_min_chars"],
+        train_inspection["prompt_max_chars"],
+        train_inspection["completion_min_chars"],
+        train_inspection["completion_max_chars"],
+    )
+    _log_rank_zero("Loading CSV dataset(s)")
 
     train_dataset, eval_dataset = _prepare_datasets(
         train_file=args.train_file,
@@ -252,35 +431,45 @@ def main() -> None:
         seed=args.seed,
     )
 
+    if eval_dataset is not None:
+        _log_rank_zero("Loaded raw datasets: train=%s eval=%s", len(train_dataset), len(eval_dataset))
+    else:
+        _log_rank_zero("Loaded raw dataset: train=%s eval=disabled", len(train_dataset))
+    _log_rank_zero("Loading tokenizer: %s", args.model_name_or_path)
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
+    _log_rank_zero("Tokenizer ready. Preparing tokenized datasets")
 
     preprocess = lambda row: _tokenize_example(row, tokenizer, args.max_seq_length)
-    train_dataset = train_dataset.map(
-        preprocess,
-        remove_columns=train_dataset.column_names,
-        desc="Tokenizing train dataset",
+    train_dataset, eval_dataset = _tokenize_datasets_once(
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        preprocess=preprocess,
+        output_dir=str(output_dir),
+        model_name_or_path=args.model_name_or_path,
+        train_file=args.train_file,
+        eval_file=args.eval_file,
+        eval_ratio=args.eval_ratio,
+        max_seq_length=args.max_seq_length,
     )
-    if eval_dataset is not None:
-        eval_dataset = eval_dataset.map(
-            preprocess,
-            remove_columns=eval_dataset.column_names,
-            desc="Tokenizing eval dataset",
-        )
+    _log_rank_zero("Tokenized datasets ready: train=%s eval=%s", len(train_dataset), len(eval_dataset) if eval_dataset else 0)
 
     torch_dtype = {
         "auto": "auto",
         "bfloat16": torch.bfloat16,
         "float16": torch.float16,
     }[args.torch_dtype]
+    _log_rank_zero("Loading base model with dtype=%s", args.torch_dtype)
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name_or_path,
         torch_dtype=torch_dtype,
         trust_remote_code=True,
     )
     model.config.use_cache = False
+    _log_rank_zero("Base model loaded")
 
     if args.gradient_checkpointing:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
@@ -295,6 +484,7 @@ def main() -> None:
         target_modules=_parse_target_modules(args.lora_target_modules),
     )
     model = get_peft_model(model, peft_config)
+    _log_rank_zero("LoRA adapters attached")
 
     eval_strategy = "steps" if eval_dataset is not None else "no"
     load_best_model_at_end = eval_dataset is not None
@@ -340,7 +530,7 @@ def main() -> None:
     )
 
     if trainer.is_world_process_zero():
-        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        world_size = _world_size()
         effective_batch = args.per_device_train_batch_size * args.gradient_accumulation_steps * max(world_size, 1)
         LOG.info("Train examples: %s", len(train_dataset))
         LOG.info("Eval examples: %s", len(eval_dataset) if eval_dataset is not None else 0)
@@ -350,6 +540,7 @@ def main() -> None:
         LOG.info("Trainable params: %s", _format_trainable_params(model))
 
     resume = _resolve_resume_from_checkpoint(args.resume_from_checkpoint, args.output_dir)
+    _log_rank_zero("Starting trainer.train(resume_from_checkpoint=%s)", resume)
     train_result = trainer.train(resume_from_checkpoint=resume)
     trainer.save_model()
     tokenizer.save_pretrained(args.output_dir)

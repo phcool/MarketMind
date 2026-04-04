@@ -73,11 +73,11 @@ python scripts/batch_qwen_cot_quotes_dataset.py --check-status
 **Reward（回归示例）**：补全**最后一行**解析浮点数（去 `%`），`reward = exp(-|pred - label| / 100)`；解析失败 **0**。
 
 ```bash
-pip install -r train/requirements.txt
-# 可选：huggingface-cli login
-bash train/scripts/launch/run_grpo_8gpu.sh
+uv sync --extra train
+# 可选：uv run huggingface-cli login
+uv run bash train/scripts/launch/run_grpo_8gpu.sh
 # 关闭 vLLM（慢，仅调试）：加 --no_vllm
-# 独立 vLLM 服务：trl vllm-serve ... 后 train_grpo_qwen.py --vllm_mode server --vllm_server_base_url http://...
+# 独立 vLLM 服务：uv run trl vllm-serve ... 后 train_grpo_qwen.py --vllm_mode server --vllm_server_base_url http://...
 ```
 
 常用参数：`--vllm_gpu_memory_utilization`（colocate 显存比例）、`--num_generations`、`--max_prompt_length`、`--max_completion_length`、`--report_to tensorboard`。

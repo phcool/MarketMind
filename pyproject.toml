@@ -1,0 +1,34 @@
+[project]
+name = "marketmind"
+version = "0.1.0"
+description = "Market data collection, dashboarding, and training workflows."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "akshare>=1.16.0",
+    "beautifulsoup4>=4.12.0",
+    "flask>=3.1.0",
+    "openai>=2.0.0",
+    "pandas>=2.2.0",
+    "playwright>=1.52.0",
+    "python-dotenv>=1.1.0",
+    "requests>=2.32.0",
+    "transformers>=4.57.6",
+    "vllm>=0.19.0",
+]
+
+[project.optional-dependencies]
+train = [
+    "accelerate>=1.13.0",
+    "datasets>=4.8.0",
+    "deepspeed>=0.18.0",
+    "peft>=0.18.0",
+    "sentencepiece>=0.2.0",
+    "torch>=2.9.0",
+    "transformers>=4.57.0,<5",
+    "trl>=0.29.0",
+    "vllm>=0.12.0",
+]
+
+[tool.uv]
+package = false
