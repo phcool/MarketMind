@@ -297,7 +297,7 @@ def _fmt_num(x: Any) -> str:
 def upsert_quotes_rows(rows: list[tuple]) -> None:
     """
     rows: (symbol, trade_date, open, close, high, low, volume, amount,
-           amplitude, pct_change, change_amount, turnover) — same as quotes_db tuples.
+           amplitude, pct_change, change_amount, turnover) — same as exports/quotes.csv rows.
     trade_date may be date or string YYYY-MM-DD.
     """
     if not rows:

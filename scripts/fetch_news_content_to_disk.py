@@ -1,7 +1,7 @@
 """
 Fetch full news article body from East Money HTML (div#ContentBody) for selected stocks.
 
-Reads URLs from UTF-8 CSV (default: exports/news.csv from export_pg_tables_to_csv.py).
+Reads URLs from UTF-8 CSV (default: exports/news.csv).
 Saves text under:
   Content/news/{YYYY-MM}/{sha256(url).hex}.txt
 

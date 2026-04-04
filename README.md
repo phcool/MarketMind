@@ -22,7 +22,7 @@
 
 ## `exports/` CSV 结构（主数据）
 
-合并与路径逻辑见 **`scripts/csv_io.py`**；行情字段映射见 **`scripts/quotes_db.py`**。
+合并、路径与 CSV 去重逻辑见 **`scripts/csv_io.py`**；行情字段映射见 **`scripts/fetch_stocks.py`**。
 
 | 文件 | 说明 |
 |------|------|

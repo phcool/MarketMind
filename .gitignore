@@ -5,3 +5,5 @@ train/outputs/
 *.csv
 *.jsonl
 *.pyc
+__pycache__/
+.DS_Store

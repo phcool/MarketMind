@@ -16,7 +16,6 @@ import akshare as ak
 import pandas as pd
 
 from csv_io import upsert_quotes_rows
-from quotes_db import dataframe_to_quote_rows, ensure_table
 from stock_universe import load_sectors
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -27,6 +26,87 @@ DEFAULT_START_DATE = "20250101"  # used only when no checkpoint entry exists
 END_DATE = date.today().strftime("%Y%m%d")
 
 SECTORS = load_sectors()
+
+
+def _pick_column(df: pd.DataFrame, *candidates: str) -> str | None:
+    for name in candidates:
+        if name in df.columns:
+            return name
+    return None
+
+
+def _series_or_none(df: pd.DataFrame, *candidates: str) -> pd.Series | None:
+    col = _pick_column(df, *candidates)
+    if col is None:
+        return None
+    return df[col]
+
+
+def dataframe_to_quote_rows(df: pd.DataFrame, symbol_override: str | None = None) -> list[tuple]:
+    """
+    Map akshare daily K-line dataframe to rows for exports/quotes.csv.
+
+    Output tuple schema:
+      (symbol, trade_date, open, close, high, low, volume, amount,
+       amplitude, pct_change, change_amount, turnover)
+    """
+    if df is None or df.empty:
+        return []
+
+    date_col = _pick_column(df, "日期", "date", "trade_date")
+    open_col = _pick_column(df, "开盘", "open")
+    close_col = _pick_column(df, "收盘", "close")
+    high_col = _pick_column(df, "最高", "high")
+    low_col = _pick_column(df, "最低", "low")
+    volume_col = _pick_column(df, "成交量", "volume")
+    amount_col = _pick_column(df, "成交额", "amount")
+    amplitude_col = _pick_column(df, "振幅", "amplitude")
+    pct_change_col = _pick_column(df, "涨跌幅", "pct_change")
+    change_amount_col = _pick_column(df, "涨跌额", "change_amount")
+    turnover_col = _pick_column(df, "换手率", "turnover")
+
+    required = {
+        "date": date_col,
+        "open": open_col,
+        "close": close_col,
+        "high": high_col,
+        "low": low_col,
+        "volume": volume_col,
+    }
+    missing = [name for name, col in required.items() if col is None]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}; available columns={list(df.columns)}")
+
+    amount_series = _series_or_none(df, "成交额", "amount")
+    amplitude_series = _series_or_none(df, "振幅", "amplitude")
+    pct_change_series = _series_or_none(df, "涨跌幅", "pct_change")
+    change_amount_series = _series_or_none(df, "涨跌额", "change_amount")
+    turnover_series = _series_or_none(df, "换手率", "turnover")
+    symbol_series = _series_or_none(df, "股票代码", "代码", "symbol")
+
+    rows: list[tuple] = []
+    for i, raw_date in enumerate(df[date_col]):
+        trade_date = pd.to_datetime(raw_date).date().isoformat()
+        symbol = symbol_override or (
+            str(symbol_series.iloc[i]).strip() if symbol_series is not None else ""
+        )
+        rows.append(
+            (
+                symbol,
+                trade_date,
+                df[open_col].iloc[i],
+                df[close_col].iloc[i],
+                df[high_col].iloc[i],
+                df[low_col].iloc[i],
+                df[volume_col].iloc[i],
+                amount_series.iloc[i] if amount_series is not None else None,
+                amplitude_series.iloc[i] if amplitude_series is not None else None,
+                pct_change_series.iloc[i] if pct_change_series is not None else None,
+                change_amount_series.iloc[i] if change_amount_series is not None else None,
+                turnover_series.iloc[i] if turnover_series is not None else None,
+            )
+        )
+    return rows
 
 
 def load_checkpoint() -> dict[str, str]:
@@ -77,8 +157,6 @@ def main() -> None:
     args = parser.parse_args()
 
     ckpt = {} if args.add else load_checkpoint()
-
-    ensure_table()
 
     for _sector, companies in SECTORS.items():
         for name, symbol, market in companies:

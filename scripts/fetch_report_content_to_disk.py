@@ -12,7 +12,7 @@ Save format matches stock_daily_dashboard._write_report_cache_file:
 
 File path: Content/report/{sha256(url)}.txt (same as dashboard cache — no DB writes).
 
-Data source: UTF-8 CSV (default exports/report.csv), e.g. from export_pg_tables_to_csv.py.
+Data source: UTF-8 CSV (default exports/report.csv).
 
 Resume: skip if file exists and body after '---' is non-empty, or the same URL already has
 non-empty body on disk under Content/report/ (full scan). HTTP 429/456/503 retry with backoff
