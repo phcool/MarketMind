@@ -197,6 +197,32 @@ flowchart LR
 - **格式**：UTF-8 CSV，表头 `prompt`, `label`；`prompt` 含换行，由 CSV 引号转义。
 - **数据源**：`exports/quotes.csv`（无 PostgreSQL 依赖）。
 
+### 9.5 Eval 数据集与当前结果
+
+为评估 SFT 后模型在同任务上的泛化效果，另外构建了一个 **eval 集**：
+
+- **文件**：`train/dataset/quotes_7d_eval_20260101_20260228.csv`
+- **标签日窗口**：**2026-01-01 ≤ Day8 < 2026-03-01**
+- **样本数**：**1330**
+- **列结构**：`prompt`, `completion`
+- **`prompt`**：与 `train/dataset/quotes_7d_cot_from_batch.csv` 保持一致，包含 7 日归一化 K 线、思维链占位符和“最后单独输出涨/跌”的要求
+- **`completion`**：仅保留真实最终结果，即 **「涨」** 或 **「跌」**
+
+评测脚本：`train/scripts/sft/eval_sft_vllm_compare.py`
+
+- **基础模型**：`Qwen/Qwen2.5-7B-Instruct`
+- **微调模型**：在基础模型上加载 `qwen2_5_sft_cot_lora` LoRA adapter
+- **评测方式**：用 vLLM 对 eval 集逐条生成，解析最终输出中的 **「涨」/「跌」**，与 `completion` 对比计算正确率
+
+当前记录到 `train/outputs/sft_vllm_compare.json` 的结果如下：
+
+| 模型 | 正确率 |
+|------|--------|
+| 原始 `Qwen/Qwen2.5-7B-Instruct` | **49.47%**（658 / 1330） |
+| SFT LoRA 微调后模型 | **52.18%**（694 / 1330） |
+
+本次评测中两者都**没有出现“提取失败”样本**，因此“包含提取失败”和“排除提取失败”的统计一致，文档统一记为**正确率**。
+
 ---
 
 ## 10. 训练策略：为何不再采用「涨跌幅数值 + GRPO」

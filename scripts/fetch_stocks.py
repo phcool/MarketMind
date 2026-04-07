@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -145,6 +146,34 @@ def fetch_stock(symbol: str, market: str, start: str, end: str) -> pd.DataFrame:
     )
 
 
+def fetch_stock_with_retry(
+    symbol: str,
+    market: str,
+    start: str,
+    end: str,
+    *,
+    max_attempts: int,
+    retry_base_delay: float,
+) -> pd.DataFrame:
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fetch_stock(symbol, market, start, end)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= max_attempts:
+                break
+            wait_seconds = retry_base_delay * (2 ** (attempt - 1))
+            print(
+                f"attempt {attempt}/{max_attempts} failed: {exc}; retrying after {wait_seconds:.1f}s ...",
+                end=" ",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+    assert last_exc is not None
+    raise last_exc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fetch daily quotes via akshare into exports/quotes.csv.",
@@ -153,6 +182,24 @@ def main() -> None:
         "--add",
         action="store_true",
         help="Ignore checkpoint and fetch from DEFAULT_START_DATE",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Seconds to sleep after each symbol fetch attempt (default: 1.0).",
+    )
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=3,
+        help="Maximum attempts per symbol when AkShare fetch fails (default: 3).",
+    )
+    parser.add_argument(
+        "--retry-base-delay",
+        type=float,
+        default=3.0,
+        help="Base seconds to wait before retry; doubles after each failure (default: 3.0).",
     )
     args = parser.parse_args()
 
@@ -175,7 +222,14 @@ def main() -> None:
 
             print(f"Fetching {name} ({symbol})  {start} → {end} ...", end=" ", flush=True)
             try:
-                df = fetch_stock(symbol, market, start, end)
+                df = fetch_stock_with_retry(
+                    symbol,
+                    market,
+                    start,
+                    end,
+                    max_attempts=max(1, args.max_attempts),
+                    retry_base_delay=max(0.0, args.retry_base_delay),
+                )
                 if df is None or df.empty:
                     print("no data returned, skipped.")
                     continue
@@ -198,6 +252,9 @@ def main() -> None:
                 print(f"merged {len(rows)} rows, latest={latest}.")
             except Exception as exc:
                 print(f"ERROR – {exc}")
+            finally:
+                if args.delay > 0:
+                    time.sleep(args.delay)
 
 
 if __name__ == "__main__":

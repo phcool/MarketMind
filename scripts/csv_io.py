@@ -354,3 +354,35 @@ def update_report_content_by_url(updates: list[tuple[str, str]]) -> None:
             if u in umap:
                 r["content"] = umap[u]
         _write_csv_dicts(REPORT_CSV, REPORT_FIELDNAMES, rows)
+
+
+def delete_news_rows_by_url(urls: list[str]) -> int:
+    """Delete news.csv rows whose url is in urls. Returns deleted row count."""
+    if not urls:
+        return 0
+    targets = {u.strip() for u in urls if u and u.strip()}
+    if not targets:
+        return 0
+    with _news_lock:
+        rows = _read_csv_dicts(NEWS_CSV, NEWS_FIELDNAMES)
+        out = [r for r in rows if (r.get("url", "") not in targets)]
+        deleted = len(rows) - len(out)
+        if deleted:
+            _write_csv_dicts(NEWS_CSV, NEWS_FIELDNAMES, out)
+        return deleted
+
+
+def delete_report_rows_by_url(urls: list[str]) -> int:
+    """Delete report.csv rows whose url is in urls. Returns deleted row count."""
+    if not urls:
+        return 0
+    targets = {u.strip() for u in urls if u and u.strip()}
+    if not targets:
+        return 0
+    with _report_lock:
+        rows = _read_csv_dicts(REPORT_CSV, REPORT_FIELDNAMES)
+        out = [r for r in rows if (r.get("url", "") not in targets)]
+        deleted = len(rows) - len(out)
+        if deleted:
+            _write_csv_dicts(REPORT_CSV, REPORT_FIELDNAMES, out)
+        return deleted
