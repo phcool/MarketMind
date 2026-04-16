@@ -24,7 +24,8 @@ CHECKPOINT_DIR = ROOT_DIR / "checkpoint"
 CHECKPOINT_FILE = CHECKPOINT_DIR / "fetch_stocks_checkpoint.json"
 
 DEFAULT_START_DATE = "20250101"  # used only when no checkpoint entry exists
-END_DATE = date.today().strftime("%Y%m%d")
+# END_DATE = date.today().strftime("%Y%m%d")
+END_DATE = "20260401"
 
 SECTORS = load_sectors()
 

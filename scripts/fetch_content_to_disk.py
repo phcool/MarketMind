@@ -187,13 +187,8 @@ def fetch_news_with_retries(
                 body = extract_news_content_body(resp.text)
                 if body:
                     return FetchResult(status="ok", body=body)
-                log.warning(
-                    "%s empty #ContentBody (attempt %d/%d) %s",
-                    log_label,
-                    attempt,
-                    max_attempts,
-                    url[:100],
-                )
+                log.warning("%s empty #ContentBody delete+skip %s", log_label, url[:100])
+                return FetchResult(status="empty")
         except requests.HTTPError as exc:
             code = exc.response.status_code if exc.response is not None else None
             if code == 404:
@@ -256,7 +251,8 @@ def fetch_report_with_retries(
             if (text or "").strip():
                 return FetchResult(status="ok", body=text)
             saw_empty = True
-            log.warning("[%d/%d] empty parse %s", attempt, max_attempts, url[:80])
+            log.warning("empty parse delete+skip %s", url[:80])
+            return FetchResult(status="empty")
         except requests.HTTPError as exc:
             code = exc.response.status_code if exc.response is not None else None
             if code == 404:
@@ -298,7 +294,16 @@ def load_news_rows(csv_path: Path, symbols: set[str], since: date) -> list[tuple
                 continue
             rows.append((url, sym, title, row_date))
     rows.sort(key=lambda r: (r[3], r[0]))
-    return rows
+
+    deduped_rows: list[tuple[str, str, str, date]] = []
+    seen_urls: set[str] = set()
+    for row in rows:
+        url = row[0]
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        deduped_rows.append(row)
+    return deduped_rows
 
 
 def load_report_rows(csv_path: Path, symbols: set[str], since: date | None) -> list[tuple[str, str, date | None]]:
@@ -323,7 +328,16 @@ def load_report_rows(csv_path: Path, symbols: set[str], since: date | None) -> l
             title = (row.get("title") or "").strip()
             rows.append((url, title, row_date))
     rows.sort(key=lambda r: (r[2] is None, r[2] or date.min, r[0]))
-    return rows
+
+    deduped_rows: list[tuple[str, str, date | None]] = []
+    seen_urls: set[str] = set()
+    for row in rows:
+        url = row[0]
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        deduped_rows.append(row)
+    return deduped_rows
 
 
 def build_news_file(url: str, symbol: str, title: str, news_date: date, body: str) -> str:
@@ -398,9 +412,9 @@ def process_news(args: argparse.Namespace, symbols: list[str]) -> None:
             deleted += removed
             continue
         if result.status == "empty":
-            skip += 1
-            if args.delay > 0:
-                time.sleep(args.delay)
+            removed = delete_news_rows_by_url([url])
+            remove_file_if_exists(path)
+            deleted += removed
             continue
         fail += 1
         if args.delay > 0:
@@ -497,7 +511,9 @@ def process_report(args: argparse.Namespace, symbols: list[str]) -> None:
                 deleted += removed
                 continue
             if result.status == "empty":
-                empty += 1
+                removed = delete_report_rows_by_url([url])
+                remove_file_if_exists(report_output_path(url))
+                deleted += removed
                 continue
             failed += 1
             log.warning("[report %d/%d] transient fail %s", done, len(to_fetch), url[:80])

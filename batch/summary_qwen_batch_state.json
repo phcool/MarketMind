@@ -1,0 +1,11 @@
+{
+  "batch_id": "batch_8f7cd6fa-1d53-48a1-b3fd-52917d9d46a9",
+  "content_dir": "/home/vrintern/tmp/MarketMind/Content",
+  "summary_dir": "/home/vrintern/tmp/MarketMind/Summary",
+  "jsonl_out": "/home/vrintern/tmp/MarketMind/batch/summary_qwen_batch_input.jsonl",
+  "result_out": "/home/vrintern/tmp/MarketMind/batch/summary_qwen_batch_result.jsonl",
+  "error_out": "/home/vrintern/tmp/MarketMind/batch/summary_qwen_batch_error.jsonl",
+  "offset": 0,
+  "limit": null,
+  "model": "qwen3.5-flash"
+}
