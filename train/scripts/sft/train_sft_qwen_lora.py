@@ -41,7 +41,7 @@ from transformers import (
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_DIR = SCRIPT_DIR.parents[1]
 REPO_ROOT = SCRIPT_DIR.parents[2]
-DEFAULT_TRAIN_FILE = TRAIN_DIR / "dataset" / "quotes_7d_cot_from_batch.csv"
+DEFAULT_TRAIN_FILE = REPO_ROOT / "dataset" / "quotes_7d_cot_from_batch.csv"
 
 
 def _default_hf_output_dir() -> Path:

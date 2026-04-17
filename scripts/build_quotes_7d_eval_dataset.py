@@ -20,7 +20,7 @@ from typing import Any
 from csv_io import QUOTES_CSV
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_eval_20260101_20260228.csv"
+DEFAULT_OUT = ROOT_DIR / "dataset" / "quotes_7d_eval_20260101_20260228.csv"
 
 HEADER = """过去7个交易日的K线数据如下(归一化后)：
 其中，open 表示开盘价，high 表示最高价，low 表示最低价，close 表示收盘价，volume 表示成交量，amplitude 表示振幅，pct_change 表示涨跌幅，turnover 表示换手率。"""

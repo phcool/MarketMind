@@ -30,7 +30,7 @@ from typing import Any
 from csv_io import QUOTES_CSV
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_OUT = ROOT_DIR / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
+DEFAULT_OUT = ROOT_DIR / "dataset" / "quotes_7d_pre2026_dataset.csv"
 
 HEADER = """过去7个交易日的K线数据如下(归一化后)：
 """

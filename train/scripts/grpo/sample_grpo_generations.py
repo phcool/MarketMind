@@ -22,7 +22,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_DIR = SCRIPT_DIR.parents[2]
-DEFAULT_TRAIN_CSV = TRAIN_DIR / "dataset" / "quotes_7d_pre2026_dataset.csv"
+REPO_ROOT = SCRIPT_DIR.parents[3]
+DEFAULT_TRAIN_CSV = REPO_ROOT / "dataset" / "quotes_7d_pre2026_dataset.csv"
 
 _FLOAT_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 

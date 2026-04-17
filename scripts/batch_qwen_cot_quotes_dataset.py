@@ -57,11 +57,11 @@ def _dashscope_api_key() -> str | None:
 
 _load_dotenv()
 
-DEFAULT_DATASET = ROOT_DIR / "train" / "dataset" / "quotes_7d_pre2026_dataset.csv"
+DEFAULT_DATASET = ROOT_DIR / "dataset" / "quotes_7d_pre2026_dataset.csv"
 DEFAULT_JSONL = ROOT_DIR / "batch" / "cot_qwen_batch_input.jsonl"
 DEFAULT_RESULT = ROOT_DIR / "batch" / "cot_qwen_batch_result.jsonl"
 DEFAULT_ERROR = ROOT_DIR / "batch" / "cot_qwen_batch_error.jsonl"
-DEFAULT_COT_DATASET = ROOT_DIR / "train" / "dataset" / "quotes_7d_cot_from_batch.csv"
+DEFAULT_COT_DATASET = ROOT_DIR / "dataset" / "quotes_7d_cot_from_batch.csv"
 STATE_FILE = ROOT_DIR / "batch" / "cot_qwen_batch_state.json"
 DEFAULT_MODEL = "qwen3-max"
 

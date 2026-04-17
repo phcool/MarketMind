@@ -24,14 +24,14 @@ import random
 import re
 from pathlib import Path
 
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 from tqdm import tqdm
 from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_DIR = SCRIPT_DIR.parents[1]
-DEFAULT_DATASET = TRAIN_DIR / "dataset" / "quotes_7d_eval_20260101_20260228.csv"
+DEFAULT_DATASET = TRAIN_DIR.parents[0] / "dataset" / "quotes_7d_eval_20260101_20260228.csv"
 DEFAULT_ADAPTER_ROOT = Path("/nfs/hanpeng/huggingface/models/qwen2_5_sft_cot_lora")
 DEFAULT_OUTPUT_JSON = TRAIN_DIR / "outputs" / "sft_vllm_compare.json"
 
@@ -219,7 +219,8 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top_p", type=float, default=1.0)
     parser.add_argument("--use_all", action="store_true", help="Evaluate the entire dataset instead of random sampling.")
-    parser.add_argument("--tensor_parallel_size", type=int, default=1)
+    parser.add_argument("--tensor_parallel_size", type=int, default=4)
+    parser.add_argument("--pipeline_parallel_size", type=int, default=2)
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.85)
     parser.add_argument("--max_model_len", type=int, default=4096)
     parser.add_argument("--max_lora_rank", type=int, default=64)
@@ -253,6 +254,18 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(str(adapter_path), use_fast=True, trust_remote_code=True)
     templated_prompts = _build_templated_prompts(tokenizer, sampled_rows)
 
+    config = AutoConfig.from_pretrained(args.base_model, trust_remote_code=True)
+    num_attention_heads = int(getattr(config, "num_attention_heads", 0) or 0)
+    if num_attention_heads and num_attention_heads % args.tensor_parallel_size != 0:
+        valid = [d for d in range(1, num_attention_heads + 1) if num_attention_heads % d == 0]
+        raise SystemExit(
+            "Invalid tensor parallel setting for this model: "
+            f"num_attention_heads={num_attention_heads}, tensor_parallel_size={args.tensor_parallel_size}. "
+            f"Valid tensor_parallel_size values are {valid}. "
+            "If you want to use 8 GPUs on Qwen2.5-7B-Instruct, use for example "
+            "--tensor_parallel_size 4 --pipeline_parallel_size 2."
+        )
+
     sampling_params = SamplingParams(
         temperature=args.temperature,
         top_p=args.top_p,
@@ -263,6 +276,7 @@ def main() -> None:
         model=args.base_model,
         trust_remote_code=True,
         tensor_parallel_size=args.tensor_parallel_size,
+        pipeline_parallel_size=args.pipeline_parallel_size,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
         enable_lora=True,
@@ -332,6 +346,7 @@ def main() -> None:
             "top_p": args.top_p,
             "max_new_tokens": args.max_new_tokens,
             "tensor_parallel_size": args.tensor_parallel_size,
+            "pipeline_parallel_size": args.pipeline_parallel_size,
             "gpu_memory_utilization": args.gpu_memory_utilization,
             "max_model_len": args.max_model_len,
             "max_lora_rank": args.max_lora_rank,
