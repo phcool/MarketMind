@@ -166,7 +166,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
     parser.add_argument("--dataset", type=str, default=str(DEFAULT_DATASET))
     parser.add_argument("--output_json", type=str, default=str(DEFAULT_OUTPUT_JSON))
-    parser.add_argument("--num_samples", type=int, default=20)
+    parser.add_argument("--num_samples", type=int, default=0, help="Number of random samples to evaluate. 0 means use all rows.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max_new_tokens", type=int, default=2048)
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -190,7 +190,7 @@ def main() -> None:
     if not rows:
         raise SystemExit(f"No rows found in dataset: {dataset_path}")
 
-    if args.use_all:
+    if args.use_all or args.num_samples <= 0:
         sampled_rows = rows
     else:
         num_samples = min(args.num_samples, len(rows))

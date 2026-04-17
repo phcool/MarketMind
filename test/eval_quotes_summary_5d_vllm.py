@@ -10,10 +10,13 @@ from pathlib import Path
 from transformers import AutoConfig
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = ROOT_DIR / "dataset" / "quotes_summary_5d_2026-01-01_to_2026-04-01.csv"
 DEFAULT_OUTPUT_JSON = ROOT_DIR / "test" / "outputs" / "quotes_summary_5d_vllm_eval.json"
+DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_ADAPTER_PATH = "/nfs/hanpeng/huggingface/models/qwen2_5_sft_cot_lora"
 
 TRIPLE_LABEL_RE = re.compile(r"^\s*([涨跌])\s*[，,/\s]\s*([涨跌])\s*[，,/\s]\s*([涨跌])\s*$")
 EXTRACTION_FAILED = "提取失败"
@@ -185,10 +188,11 @@ def _compute_accuracy(results: list[dict[str, object]], *, include_failed: bool)
 
 def build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate Qwen2.5-7B-Instruct with vLLM on quotes+summary dataset.")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument("--base_model", type=str, default=DEFAULT_BASE_MODEL)
+    parser.add_argument("--adapter_path", type=str, default=DEFAULT_ADAPTER_PATH)
     parser.add_argument("--dataset", type=str, default=str(DEFAULT_DATASET))
     parser.add_argument("--output_json", type=str, default=str(DEFAULT_OUTPUT_JSON))
-    parser.add_argument("--num_samples", type=int, default=20)
+    parser.add_argument("--num_samples", type=int, default=0, help="Number of random samples to evaluate. 0 means use all rows.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max_new_tokens", type=int, default=4096)
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -198,6 +202,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--pipeline_parallel_size", type=int, default=2)
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.9)
     parser.add_argument("--max_model_len", type=int, default=32768)
+    parser.add_argument("--max_lora_rank", type=int, default=64)
     return parser
 
 
@@ -206,23 +211,26 @@ def main() -> None:
 
     dataset_path = Path(args.dataset).expanduser().resolve()
     output_json = Path(args.output_json).expanduser().resolve()
+    adapter_path = Path(args.adapter_path).expanduser().resolve()
     output_json.parent.mkdir(parents=True, exist_ok=True)
 
     rows = _load_rows(dataset_path)
     if not rows:
         raise SystemExit(f"No rows found in dataset: {dataset_path}")
+    if not (adapter_path / "adapter_model.safetensors").is_file():
+        raise SystemExit(f"LoRA adapter not found or incomplete: {adapter_path}")
 
-    if args.use_all:
+    if args.use_all or args.num_samples <= 0:
         sampled_rows = rows
     else:
         num_samples = min(args.num_samples, len(rows))
         rng = random.Random(args.seed)
         sampled_rows = rng.sample(rows, num_samples)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(str(adapter_path), use_fast=True, trust_remote_code=True)
     prompts = _build_templated_prompts(tokenizer, sampled_rows)
 
-    config = AutoConfig.from_pretrained(args.model, trust_remote_code=True)
+    config = AutoConfig.from_pretrained(args.base_model, trust_remote_code=True)
     num_attention_heads = int(getattr(config, "num_attention_heads", 0) or 0)
     if num_attention_heads and num_attention_heads % args.tensor_parallel_size != 0:
         valid = [d for d in range(1, num_attention_heads + 1) if num_attention_heads % d == 0]
@@ -235,12 +243,14 @@ def main() -> None:
         )
 
     llm = LLM(
-        model=args.model,
+        model=args.base_model,
         tensor_parallel_size=args.tensor_parallel_size,
         pipeline_parallel_size=args.pipeline_parallel_size,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
         trust_remote_code=True,
+        enable_lora=True,
+        max_lora_rank=args.max_lora_rank,
     )
     sampling_params = SamplingParams(
         temperature=args.temperature,
@@ -248,8 +258,13 @@ def main() -> None:
         max_tokens=args.max_new_tokens,
     )
 
-    print(f"[eval] Generating with {args.model} on {len(prompts)} prompts ...")
-    outputs = llm.generate(prompts, sampling_params, use_tqdm=True)
+    print(f"[eval] Generating with {args.base_model} + LoRA {adapter_path} on {len(prompts)} prompts ...")
+    outputs = llm.generate(
+        prompts,
+        sampling_params,
+        lora_request=LoRARequest("sft_adapter", 1, str(adapter_path)),
+        use_tqdm=True,
+    )
 
     results: list[dict[str, object]] = []
     for row, prompt, output in zip(sampled_rows, prompts, outputs):
@@ -270,7 +285,8 @@ def main() -> None:
     correct_valid, total_valid, acc_valid = _compute_accuracy(results, include_failed=False)
 
     payload = {
-        "model": args.model,
+        "base_model": args.base_model,
+        "adapter_path": str(adapter_path),
         "dataset": str(dataset_path),
         "num_samples": len(results),
         "accuracy_including_extraction_failures": {
