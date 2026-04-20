@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MarketMind Live Fetch</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">MarketMind</p>
+        <h1>实时抓取股票评论、新闻和研报</h1>
+        <p class="subtitle">输入当前股票池中的代码，页面会实时抓取最近的 comments、news 和 reports。</p>
+      </section>
+
+      <section class="panel">
+        <form id="fetch-form" class="searchbar">
+          <input id="symbol-input" name="symbol" placeholder="例如 300750 / 000001 / 00175" value="{{ initial_symbol }}">
+          <button type="submit">实时获取</button>
+        </form>
+        <div class="hint">
+          <span>可选股票：</span>
+          {% for stock in stock_options %}
+            <button class="chip" type="button" data-symbol="{{ stock.symbol }}">{{ stock.name }} {{ stock.symbol }}</button>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="status" class="status {% if initial_error %}error{% endif %}">
+        {% if initial_error %}
+          {{ initial_error }}
+        {% else %}
+          输入股票代码后开始抓取。
+        {% endif %}
+      </section>
+
+      <section id="result-root">
+        {% if initial_data %}
+          <script>
+            window.__INITIAL_DATA__ = {{ initial_data|tojson }};
+          </script>
+        {% endif %}
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
