@@ -4,30 +4,114 @@
 
 \section{系统运行环境与开发工具}
 
+本文系统采用 Python 作为主要开发语言，整体实现以轻量级 Web 服务、批处理脚本和本地文件缓存相结合的方式完成。项目依赖由 \path|pyproject.toml| 统一管理，核心运行依赖包括 Flask、requests、BeautifulSoup、Playwright、pandas、openai、transformers 等。其中，Flask 用于构建本地 Web 服务和接口，requests 与 BeautifulSoup 用于访问和解析网页内容，Playwright 用于处理部分需要浏览器环境渲染的新闻搜索页面，openai SDK 用于调用兼容 OpenAI 接口的大语言模型服务。
+
+从工程目录上看，系统实现主要分为三部分。第一部分是 \path|scripts/fetch/| 下的数据采集脚本，负责行情、评论、新闻和研报数据的批量抓取与落盘；第二部分是 \path|scripts/dataset/|、\path|train/scripts/| 和 \path|test/| 下的数据集构建、模型训练和实验评测脚本，支撑离线训练与验证；第三部分是 \path|src/| 和 \path|scripts/stock_daily_dashboard.py| 中的在线展示与预测服务，分别面向实时抓取展示和多源信息汇总预测。
+
+系统不依赖 PostgreSQL 等外部数据库，而是采用 UTF-8 CSV 文件和本地文本缓存作为主要存储方式。主数据保存在 \path|exports/| 目录中，包括 \path|quotes.csv|、\path|comments.csv|、\path|news.csv| 和 \path|report.csv|；新闻和研报正文缓存保存在 \path|Content/news/| 和 \path|Content/report/|；新闻、研报摘要等中间结果可保存至 \path|Summary/|。这种设计虽然不如数据库系统复杂，但便于本科论文阶段进行复现、调试和离线实验，也便于直接检查数据质量。
+
+在线服务方面，仓库中存在两类入口。\path|src/app.py| 提供较简洁的实时抓取页面，用户输入股票代码后，系统实时返回 comments、news 和 reports；\path|scripts/stock_daily_dashboard.py| 则提供更完整的研究型看板，支持选择股票和日期、查看历史落盘数据、流式调用大语言模型生成评论总结、新闻总结、研报总结，并基于总结和最近 K 线输出未来走势预测。
+
 \section{数据获取与调度实现}
 
 \subsection{实时抓取脚本实现}
 
+数据获取分为批量采集和在线实时采集两种模式。批量采集主要由 \path|scripts/fetch/fetch_market_data.py| 和 \path|scripts/fetch/fetch_stocks.py| 实现。前者提供统一入口，可以通过 \texttt{--mode comments}、\texttt{--mode news}、\texttt{--mode report} 或 \texttt{--mode all} 分别抓取股吧评论、东方财富新闻列表和新浪财经研报列表；后者负责通过 akshare 获取股票日线行情，并合并写入 \path|exports/quotes.csv|。
+
+在评论采集部分，系统调用东方财富股吧相关接口，按股票代码分页抓取帖子标题、发布时间、点击数和评论数等字段。为了提高采集效率，脚本在单只股票内部使用多线程分页调度，同时通过 checkpoint 文件记录已完成页码，使采集中断后可以继续执行。评论数据写入时按 URL 去重，并在每个股票、每个自然日内只保留点击量较高的前 200 条，以减少低曝光、重复或噪声较大的帖子对后续分析的干扰。
+
+新闻采集部分使用 Playwright 访问东方财富新闻搜索页面，解析新闻标题、链接和日期后写入 \path|exports/news.csv|。由于搜索页面依赖浏览器渲染，Playwright 能够比普通 HTTP 请求更稳定地获取新闻列表。研报采集部分则访问新浪财经研报列表页，获取研报标题、链接和日期，并写入 \path|exports/report.csv|。
+
+在线实时采集由 \path|src/live_fetch.py| 实现。该文件提供 \texttt{fetch\_stock\_snapshot} 函数，输入股票代码后，首先通过 \texttt{resolve\_stock} 在股票池中确认股票名称、代码和市场类型，然后分别调用 \texttt{fetch\_recent\_comments}、\texttt{fetch\_recent\_news} 和 \texttt{fetch\_recent\_reports} 获取最近评论、新闻和研报。该接口更适合前端页面的即时查询，而批量采集脚本更适合构建实验数据和历史样本。
+
 \subsection{Web API 调用实现}
 
+本文系统中的 Web API 调用主要包括两类：外部金融信息源调用和大语言模型服务调用。
+
+外部金融信息源调用主要通过 requests、BeautifulSoup 和 Playwright 完成。对于股吧评论，系统访问东方财富股吧接口并解析返回的帖子列表；对于东方财富新闻，系统使用浏览器自动化方式进入搜索页面，提取新闻条目链接、标题和日期；对于新浪研报，系统通过 HTTP 请求获取列表页和详情页，并解析研报正文。为了降低反爬限制和网络波动带来的影响，相关脚本设置了 User-Agent、timeout、重试次数、请求间隔和指数退避等机制。
+
+大语言模型服务调用主要在 \path|scripts/stock_daily_dashboard.py| 中实现。系统通过 openai SDK 连接阿里云 DashScope 的 OpenAI 兼容接口，默认 base URL 为 \path|https://dashscope.aliyuncs.com/compatible-mode/v1|，模型名可通过 \texttt{DASHSCOPE\_MODEL} 或 \texttt{QWEN\_MODEL} 环境变量配置，默认使用 \texttt{qwen3-max}。API Key 可通过 \texttt{DASHBOARD\_API\_KEY} 或 \texttt{DASHSCOPE\_API\_KEY} 配置，脚本启动时会从项目根目录的 \path|.env| 文件读取环境变量。
+
+为了提升在线体验，系统在评论总结、新闻总结和研报总结中采用流式输出方式。函数 \texttt{\_chat\_completions\_stream} 会调用 \texttt{chat.completions.create(..., stream=True)}，再由 Flask 通过 Server-Sent Events 将模型输出逐步推送给前端。这样用户无需等待完整回复生成结束，就可以实时看到模型分析过程和结果。
+
+需要说明的是，本文当前实现中的“Web API”主要用于金融信息抓取和大语言模型调用，尚未完整接入通用搜索引擎 API。对于第三章中预留的 Web 检索增强模块，后续可以在现有 API 调用层基础上增加搜索结果获取、去重、摘要和证据排序逻辑。
+
 \subsection{数据缓存与存储实现}
+
+系统采用“CSV 主表 + 正文缓存 + checkpoint”的方式管理数据。CSV 主表位于 \path|exports/|，其中 \path|comments.csv| 保存股吧评论标题与互动数据，\path|news.csv| 保存新闻列表，\path|report.csv| 保存研报列表和部分正文，\path|quotes.csv| 保存日线行情。CSV 合并逻辑由 \path|scripts/fetch/csv_io.py| 统一管理，不同数据类型分别使用 URL 或 \texttt{symbol + trade\_date} 作为去重键，避免重复采集导致样本膨胀。
+
+正文缓存主要用于新闻和研报。新闻正文通过 \path|scripts/fetch/fetch_content_to_disk.py --mode news| 抓取后，按月份和 URL 哈希写入 \path|Content/news/{YYYY-MM}/{sha256(url)}.txt|；研报正文则写入 \path|Content/report/{sha256(url)}.txt|。缓存文件包含 URL、标题、日期等元信息和正文内容，中间使用分隔符区分 header 与 body。在线查询时，系统会优先读取本地缓存；如果缓存不存在或为空，再尝试访问远程页面抓取正文。
+
+checkpoint 机制用于支持长时间采集任务的断点续传。股吧分页采集使用 \path|checkpoint/fetch_forum_checkpoint.json| 记录每只股票已完成页码；新闻和研报采集也会记录公司级完成状态。这样即使采集中途由于网络、反爬或程序异常中断，下一次运行脚本时也可以从已完成位置继续执行，减少重复请求和人工维护成本。
 
 \section{多源信息汇总与预测实现}
 
 \subsection{输入构造实现}
 
+在线汇总与预测的输入构造主要在 \path|scripts/stock_daily_dashboard.py| 中完成。用户在页面中选择股票和日期后，系统通过 \texttt{query\_data} 函数读取本地 CSV 文件，筛选出目标股票在指定日期的 comments、news，以及截至该日期最近的 reports。其中 comments 和 news 按目标日期精确筛选，reports 则选取不晚于目标日期的最近 3 条研报。
+
+评论总结输入由 \texttt{build\_summary\_prompt} 构造。系统先将当日评论按点击量和评论数排序，最多保留 200 条标题，并在 Prompt 中明确要求模型输出观点簇、情绪强度、共识程度以及全局正面、中性、负面概率。该设计使评论分支输出更接近结构化“市场情绪共识”。
+
+新闻总结输入由 \texttt{build\_news\_summary\_prompt} 构造。系统将当日新闻标题按序号组织为 \texttt{news\_id} 列表，并要求模型总结主要信息主题、媒体叙述倾向和与未来走势关联较强的新闻编号。由于当前在线看板主要使用新闻标题，新闻正文二阶段增强尚作为后续扩展方向。
+
+研报总结输入由 \texttt{build\_recent\_reports\_summary\_prompt} 构造。系统对最近 3 篇研报逐篇读取正文缓存，若本地不存在则尝试在线抓取。为了控制上下文长度，每篇研报正文最多保留约 8000 个字符。Prompt 要求模型从多篇研报中归纳主要观点、逻辑主线、风险因素、机会和投资者结论要点。
+
+走势预测输入由 \texttt{\_predict\_with\_llm} 构造。系统将前一步生成的舆情总结与最近 7 个交易日 K 线共同输入模型，要求其分别输出未来 1 天、3 天和 7 天的方向、置信度和主要依据。该流程对应本文提出的“文本总结 + 行情上下文 + LLM 综合判断”的在线预测实现。
+
 \subsection{模型调用实现}
 
+模型调用层通过统一的 OpenAI 兼容客户端封装。函数 \texttt{\_qwen\_openai\_client} 根据环境变量构造客户端，如果缺少 API Key 或未安装 openai 包，则返回错误提示。所有在线模型调用都复用 \texttt{\_chat\_completions\_stream}，从而保证评论总结、新闻总结、研报总结和预测模块在接口层保持一致。
+
+对于总结类任务，系统采用 SSE 流式响应。后端生成器在调用模型前先向前端发送状态消息，例如“已收集评论若干条，正在生成总结”；模型生成过程中，每个增量 token 被包装为 JSON 事件并推送给浏览器；生成结束后发送 \texttt{done} 事件。前端根据事件类型更新状态栏和文本区域，从而形成接近实时的交互体验。
+
+对于预测任务，系统采用普通 POST 接口。前端将股票、日期和已有总结文本发送给 \path|/predict|，后端读取最近 7 个交易日 K 线后调用大语言模型，并在模型完整生成后一次性返回预测文本和对应 K 线数据。这样设计的原因是预测输出相对短，且需要依赖已经完成的总结结果。
+
 \subsection{结果解析实现}
+
+在在线看板中，评论总结 Prompt 要求模型输出 JSON，包括 \texttt{clusters}、\texttt{positive\_probability}、\texttt{neutral\_probability} 和 \texttt{negative\_probability} 等字段。前端当前主要以文本形式展示模型输出，便于人工查看；如果后续需要接入自动策略模块，可以进一步对 JSON 进行校验和字段解析。
+
+新闻和研报总结以 Markdown 或分段文本形式展示，强调可读性和信息归纳质量。走势预测结果则要求包含 1 天、3 天和 7 天三个时间尺度，每个时间尺度给出方向、置信度和一句主要依据。与第六章离线评测中的严格标签解析不同，在线系统更强调辅助投研解释，因此预测输出保留自然语言形式。
+
+为了增强中文显示鲁棒性，系统实现了 \texttt{\_repair\_mojibake} 函数，对可能出现的 UTF-8 文本误解码问题进行简单修复。对于缺少数据、模型服务不可用、API Key 未配置等情况，后端会返回明确错误信息，前端在状态区域展示，避免用户误以为空白页面或系统无响应。
 
 \section{在线预测流程实现}
 
 \subsection{目标股票输入}
 
+系统提供两种目标股票输入方式。第一种是 \path|src/app.py| 提供的实时抓取页面，用户可以直接输入股票代码，或点击页面中由股票池自动生成的股票按钮。后端通过 \texttt{normalize\_symbol} 统一代码格式，再由 \texttt{resolve\_stock} 在 \path|config/stocks.json| 中查找对应股票名称、代码和市场。
+
+第二种是 \path|scripts/stock_daily_dashboard.py| 提供的研究看板。该页面通过 \texttt{discover\_stocks} 从股票池加载 A 股股票，并生成下拉选择框。用户选择股票和日期后，页面通过 GET 请求重新查询本地数据，展示当日 comments、news 和截至所选日期的最近 reports。
+
+股票池统一由 \path|config/stocks.json| 管理，避免不同脚本维护多份股票列表导致代码、名称和市场类型不一致。无论是批量采集、实时抓取还是在线预测，系统都从同一份配置中读取股票信息。
+
 \subsection{最新信息抓取}
+
+对于实时抓取页面，最新信息抓取由 \path|src/live_fetch.py| 完成。用户访问 \path|/api/stock/<symbol>| 后，后端依次抓取最近评论、新闻和研报，并将结果组织为 JSON 返回。前端 \path|src/static/app.js| 使用浏览器 \texttt{fetch} 调用该接口，并将返回的 comments、news、reports 渲染为卡片列表。
+
+对于研究看板，数据来源主要是已落盘的 CSV 和正文缓存。用户选择日期后，系统从 \path|exports/comments.csv| 中读取当日股吧评论，从 \path|exports/news.csv| 中读取当日新闻，从 \path|exports/report.csv| 中读取目标日期之前的最近研报。若研报正文未缓存，则 \texttt{load\_or\_fetch\_report\_body} 会尝试在线抓取并写入缓存。
+
+这种双模式设计兼顾了实时性和可复现性。实时抓取页面适合查看某只股票当前最新信息；研究看板则更适合复盘某一历史日期下系统能看到的信息，并围绕这些信息进行总结和预测。
 
 \subsection{汇总预测输出}
 
+汇总预测输出流程分为三步。第一步，用户点击“总结当日 comments 观点”“总结当日 news”或“总结最近 3 条研报正文”等按钮，前端通过 EventSource 连接对应的 SSE 接口，实时接收模型输出。第二步，用户将生成的总结作为预测输入，点击“基于总结 + 近 7 天 K 线预测”按钮，前端通过 POST 请求调用 \path|/predict|。第三步，后端构造包含舆情总结和 K 线的 Prompt，调用大语言模型生成未来 1、3、7 天走势判断，并返回给前端展示。
+
+在预测结果中，模型需要分别给出三个时间尺度的方向、置信度和主要依据。这样既能满足用户快速查看结论的需要，也保留了一定可解释性。与直接输出单一“涨/跌”标签相比，分周期输出更贴近短期投研场景，因为不同时间尺度下事件影响、情绪延续和资金行为可能并不一致。
+
 \section{系统功能展示}
 
+系统当前可展示的功能主要包括以下几个方面。
+
+第一，实时数据抓取展示。用户在 \path|src/app.py| 对应页面输入股票代码后，系统会实时抓取最近评论、新闻和研报，并以卡片形式展示标题、链接、日期、点击数、评论数和正文摘要等信息。该页面验证了在线信息获取链路的可用性。
+
+第二，历史数据查询展示。用户在 \path|scripts/stock_daily_dashboard.py| 对应页面选择股票和日期后，可以查看该股票当日评论、当日新闻以及截至该日最近的研报列表。该功能用于支持历史回放和离线验证，避免预测时使用未来信息。
+
+第三，多源文本总结。系统支持分别对 comments、news 和 reports 调用大语言模型进行总结。comments 总结强调观点簇、情绪强度和共识程度；news 总结强调主要事件和媒体叙述倾向；reports 总结强调机构观点、逻辑主线和风险机会。
+
+第四，未来走势预测。系统可以将文本总结与最近 K 线共同输入模型，生成未来 1、3、7 天走势判断。该功能是 MarketMind 在线预测流程的原型实现，展示了从信息获取、文本归纳到方向判断的完整闭环。
+
+从部署方式看，当前系统主要面向本地或内网环境运行。开发环境下可以通过 \texttt{python src/app.py} 启动实时抓取页面，或通过 \texttt{python scripts/stock\_daily\_dashboard.py} 启动研究看板。若需要进一步部署到服务器，可使用 gunicorn 或 uwsgi 托管 Flask 应用，并通过 Nginx 进行反向代理；同时需要将 API Key、模型地址和缓存目录配置为环境变量，避免敏感信息写入代码仓库。
+
 \section{本章小结}
+
+本章从工程实现角度介绍了 MarketMind 系统的运行环境、数据获取、缓存存储、模型调用、在线预测流程和功能展示。系统通过批处理脚本构建可复现的数据基础，通过 CSV 与文本缓存降低部署复杂度，通过 Flask 页面和 SSE 流式输出实现在线交互，并通过大语言模型完成多源文本总结与短期走势预测。整体来看，当前实现已经打通了从金融信息采集到模型预测展示的主要链路，为后续接入更完整的 Web 检索、结构化输出校验和在线部署优化奠定了基础。
