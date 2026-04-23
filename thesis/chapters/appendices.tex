@@ -1,0 +1,300 @@
+% !TEX root = ../main.tex
+
+\chapter{关键 Prompt 示例}
+
+本附录给出本文实验中使用的主要 Prompt 模板。为保证版面可读性，以下内容对部分重复字段进行了省略，但保留任务说明、输入组织方式和输出约束。
+
+\section{7 日 K 线单周期预测 Prompt}
+
+该 Prompt 由 \path|scripts/dataset/build_quotes_7d_dataset.py| 构造，用于根据过去 7 个交易日的归一化行情特征预测第 8 个交易日的涨跌方向。输入字段包括开盘价、最高价、最低价、收盘价、成交量、振幅、涨跌幅和换手率。
+
+\begin{quote}\small
+过去 7 个交易日的 K 线数据如下（归一化后）：
+
+Day1: open=0.4183, high=0.3760, low=0.3776, close=0.2944, volume=0.6060, amplitude=3.25, pct\_change=-2.2840, turnover=0.3349
+
+Day2: open=0.3028, high=0.2840, low=0.3651, close=0.2742, volume=0.4130, amplitude=1.57, pct\_change=-0.4307, turnover=0.1767
+
+……
+
+Day7: open=0.2589, high=0.2240, low=0.3154, close=0.2419, volume=0.1768, amplitude=1.21, pct\_change=-0.8794, turnover=0.0527
+
+请根据上文 Day1--Day7 的归一化 K 线，只预测下一个交易日（Day8）相对前一日是涨还是跌。
+
+【输出要求（必须严格遵守）】只输出一个字：“涨”或“跌”，不要输出其他任何文字、数字、标点或换行。
+\end{quote}
+
+\section{监督微调 CoT 样本 Prompt}
+
+在监督微调数据中，输入仍为 7 日归一化 K 线，但目标输出由单字标签扩展为“分析过程 + 最终标签”。该设计用于让模型学习更稳定的任务解释方式和最终答案格式。
+
+\begin{quote}\small
+【思维链开始】
+
+观察过去 7 日走势，价格呈现连续下跌趋势：从 Day1 收盘一路下行至 Day7 收盘，且最近几日高点不断降低，说明短期空头力量较强。成交量没有出现明显放量反转信号，短线修复动能不足。综合趋势、量能与 K 线形态，短期惯性下跌概率较大。
+
+【思维链结束】
+
+跌
+\end{quote}
+
+\section{多源信息 1/3/7 日预测 Prompt}
+
+多源信息评测 Prompt 由 \path|test/eval_quotes_summary_5d_vllm.py| 构造。该模板在历史 K 线之外加入新闻摘要和研报摘要，并要求模型同时输出未来 1、3、7 个交易日的方向组合。
+
+\begin{quote}\small
+下面是一条股票日度样本，请根据该股票在目标日期当天可见的信息，预测未来短期走势。
+
+你会看到：
+
+1. 该股票在目标日期及之前连续 5 个交易日的归一化 K 线；
+
+2. 截止目标日期最近的 news 摘要；
+
+3. 截止目标日期最近的 report 摘要。
+
+目标日期：2026-01-05
+
+股票代码：000001
+
+过去 5 个交易日的归一化 K 线：
+
+Day1 (2025-12-26): open=0.9123, high=0.7982, low=0.9244, close=0.8934, volume=0.0084, amplitude=0.5200, pct\_change=-0.1141, turnover=0.0000
+
+……
+
+截止该日最近的 news 摘要：
+
+1. date=2026-01-05
+
+title=主力资金连续净流入相关报道
+
+summary=新闻摘要内容……
+
+截止该日最近的 report 摘要：
+
+1. date=2025-12-20
+
+title=机构研究报告标题
+
+summary=研报摘要内容……
+
+请综合 K 线形态、量能变化、news 摘要和 report 摘要，分别预测该股票相对当前交易日收盘价在以下三个阶段的涨跌：1 个交易日后、3 个交易日后、7 个交易日后。
+
+【输出要求（必须严格遵守）】请先分析，再将推理过程写在“【思维链开始】”和“【思维链结束】”之间。思维链结束后，请单独一行按顺序输出三个阶段的答案，格式必须严格为：涨，涨，跌。
+\end{quote}
+
+\section{仅行情输入对照 Prompt}
+
+仅行情输入对照实验由 \path|test/eval_quotes_summary_5d_vllm_no_text.py| 构造。其输入与多源 Prompt 使用同一批样本和同一组标签，但移除 news 与 report 摘要，只保留 5 日归一化 K 线，从而用于观察外部文本信息带来的增益。
+
+\chapter{数据样例}
+
+\section{7 日 K 线训练数据格式}
+
+7 日 K 线训练集文件为 \path|train/dataset/quotes_7d_pre2026_dataset.csv|，字段为 \texttt{prompt} 和 \texttt{label}。其中 \texttt{prompt} 是过去 7 个交易日的归一化 K 线文本，\texttt{label} 是第 8 个交易日相对第 7 个交易日的真实涨跌方向。
+
+\begin{table}[htbp]
+  \centering
+  \caption{7 日 K 线训练样本字段}
+  \begin{tabular}{lll}
+    \toprule
+    字段 & 含义 & 示例 \\
+    \midrule
+    \texttt{prompt} & 7 日归一化行情文本 & Day1--Day7 K 线序列 \\
+    \texttt{label} & 第 8 日涨跌方向 & 涨 / 跌 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+样例中，单日行情行的组织形式如下：
+
+\begin{quote}\small
+Day1: open=0.4183, high=0.3760, low=0.3776, close=0.2944, volume=0.6060, amplitude=3.25, pct\_change=-2.2840, turnover=0.3349
+\end{quote}
+
+其中 open、high、low、close 采用个股内部窗口上的 min-max 归一化；volume 先取 \(\log(1+x)\) 后再归一化；pct\_change 采用 z-score 标准化；turnover 采用 min-max 归一化；amplitude 保留原始振幅数值。
+
+\section{CoT 监督微调数据格式}
+
+CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv|，字段为 \texttt{prompt} 和 \texttt{completion}。其中 \texttt{prompt} 对应模型输入，\texttt{completion} 对应模型需要学习生成的分析过程与最终标签。
+
+\begin{table}[htbp]
+  \centering
+  \caption{CoT 监督微调样本字段}
+  \begin{tabular}{lll}
+    \toprule
+    字段 & 含义 & 示例 \\
+    \midrule
+    \texttt{prompt} & 7 日 K 线预测问题 & 归一化 K 线 + 输出要求 \\
+    \texttt{completion} & 目标回复 & 分析过程 + 最终“涨/跌” \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+训练脚本在 tokenize 时使用 Qwen chat template 将样本转为 user-assistant 对话，并对 prompt 部分 label 置为 \(-100\)，使损失只作用于 assistant 回复部分。
+
+\section{多源信息评测数据格式}
+
+多源信息数据由 \path|scripts/dataset/build_quotes_summary_5d_dataset.py| 构造，字段包括目标日期、股票代码、5 日 K 线、新闻摘要、研报摘要和未来多周期标签。数据集说明见 \path|dataset/README.md|。
+
+\begin{table}[htbp]
+  \centering
+  \caption{多源信息评测样本字段}
+  \begin{tabular}{@{}p{0.34\textwidth}p{0.54\textwidth}@{}}
+    \toprule
+    字段 & 含义 \\
+    \midrule
+    \texttt{date} & 目标交易日期 \\
+    \texttt{stock} & 股票代码 \\
+    \texttt{kline\_5d} & 目标日及之前连续 5 个交易日的归一化 K 线 JSON \\
+    \texttt{news} & 截至目标日最近 30 日内最多 30 条新闻摘要 JSON \\
+    \texttt{reports} & 截至目标日最近 30 日内最多 3 条研报摘要 JSON \\
+    \texttt{future labels} & 未来 1、3、7 个交易日方向标签 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+其中，未来标签字段在数据文件中的实际列名为 \path|future_1_3_7_trade_day_labels|。未来标签通过比较目标日期收盘价与未来第 1、第 3、第 7 个交易日收盘价得到。若未来收盘价大于或等于目标日期收盘价，则标记为“涨”，否则标记为“跌”。例如“涨，涨，跌”表示未来 1 日和 3 日方向为上涨，未来 7 日方向为下跌。
+
+\chapter{实验参数配置}
+
+\section{数据集构建参数}
+
+\begin{table}[htbp]
+  \centering
+  \caption{数据集构建主要参数}
+  \begin{tabular}{@{}p{0.23\textwidth}p{0.23\textwidth}p{0.34\textwidth}@{}}
+    \toprule
+    参数 & 取值 & 说明 \\
+    \midrule
+    7 日 K 线训练起始日期 & 2021-01-01 & 标签日不早于该日期 \\
+    7 日 K 线训练截止日期 & 2026-01-01 & 标签日早于该日期 \\
+    K 线输入长度 & 7 个交易日 & 用于单周期涨跌预测 \\
+    多源 K 线输入长度 & 5 个交易日 & 用于 1/3/7 日多周期预测 \\
+    多源评测日期范围 & 2026-01-01 至 2026-04-01 & 目标日期范围 \\
+    新闻最大回看窗口 & 30 日 & 不使用目标日期之后信息 \\
+    新闻数量上限 & 30 条 & 每个样本最多保留 30 条摘要 \\
+    研报数量上限 & 3 条 & 每个样本最多保留 3 条摘要 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{LoRA 监督微调参数}
+
+本文使用 \path|train/scripts/sft/train_sft_qwen_lora.py| 对 Qwen2.5-7B-Instruct 进行 LoRA 监督微调。主要参数如下。
+
+\begin{table}[htbp]
+  \centering
+  \caption{LoRA SFT 主要训练参数}
+  \begin{tabular}{@{}p{0.23\textwidth}p{0.28\textwidth}p{0.35\textwidth}@{}}
+    \toprule
+    参数 & 取值 & 说明 \\
+    \midrule
+    基础模型 & Qwen2.5-7B-Instruct & 指令模型基座 \\
+    训练文件 & CoT 训练集 & 文件名为 \path|quotes_7d_cot_from_batch.csv| \\
+    最大序列长度 & 2048 & token 截断长度 \\
+    训练轮数 & 2 & \texttt{num\_train\_epochs} \\
+    学习率 & \(2\times10^{-4}\) & LoRA adapter 学习率 \\
+    batch size & 1 & 单卡 batch size \\
+    梯度累积步数 & 16 & 每累积 16 步更新一次参数 \\
+    warmup ratio & 0.03 & 预热比例 \\
+    学习率调度 & cosine & 余弦退火 \\
+    随机种子 & 42 & 实验复现 \\
+    精度 & bfloat16 & 训练数值精度 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \caption{LoRA adapter 参数}
+  \begin{tabular}{lll}
+    \toprule
+    参数 & 取值 & 说明 \\
+    \midrule
+    LoRA rank & 64 & 低秩矩阵秩 \\
+    LoRA alpha & 128 & 缩放系数 \\
+    LoRA dropout & 0.05 & dropout 概率 \\
+    target modules & q/k/v/o/gate/up/down projection & 注意力与 MLP 投影层 \\
+    bias & none & 不训练 bias \\
+    task type & CAUSAL\_LM & 自回归语言模型 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+多卡训练由 \path|train/scripts/launch/run_sft_qwen_lora_8gpu.sh| 启动，默认使用 8 张 GPU，环境变量中设置 \texttt{CUDA\_VISIBLE\_DEVICES=0,1,2,3,4,5,6,7}，并通过 \texttt{torchrun} 启动训练进程。
+
+\section{vLLM 评测参数}
+
+多源信息评测使用 vLLM 加载基础模型和 LoRA adapter。主要参数如下。
+
+\begin{table}[htbp]
+  \centering
+  \caption{vLLM 评测主要参数}
+  \begin{tabular}{lll}
+    \toprule
+    参数 & 取值 & 说明 \\
+    \midrule
+    基础模型 & \path|Qwen/Qwen2.5-7B-Instruct| & 推理基座 \\
+    LoRA adapter & \path|qwen2_5_sft_cot_lora| & 监督微调 adapter \\
+    temperature & 0.0 & 确定性解码 \\
+    top\_p & 1.0 & 不额外截断概率质量 \\
+    max new tokens & 4096 & 多源输入组最大生成长度 \\
+    tensor parallel size & 4 & 张量并行度 \\
+    pipeline parallel size & 2 & 流水并行度 \\
+    max model len & 32768 & 最大上下文长度 \\
+    gpu memory utilization & 0.9 & 显存利用上限 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+评测脚本使用正则表达式从模型输出中抽取最终一行“涨，跌，涨”形式的三元标签。如果无法抽取合法标签，则记为“提取失败”。平均准确率按三个预测位置逐项计分。
+
+\chapter{部分预测案例输出}
+
+\section{多源信息预测案例}
+
+以下案例来自 \path|test/outputs/quotes_summary_5d_vllm_eval.json|。目标样本为股票 \texttt{000001} 在 2026-01-05 的预测任务，真实标签为“涨，涨，跌”，模型预测结果也为“涨，涨，跌”。
+
+\begin{quote}\small
+目标日期：2026-01-05
+
+股票代码：000001
+
+参考标签：涨，涨，跌
+
+预测标签：涨，涨，跌
+
+模型输出摘要：过去 5 日 K 线呈现先抑后扬走势，目标日出现明显反弹，成交量和换手率显著放大，显示资金介入迹象。新闻摘要中出现主力资金连续净流入等信息，说明市场情绪有所改善。综合判断，未来 1 日和 3 日可能延续反弹；但考虑短期反弹后的获利回吐和前期压力，未来 7 日存在回调可能。
+
+最终输出：涨，涨，跌
+\end{quote}
+
+该案例体现了多源信息输入的作用：模型不仅使用 K 线中的反弹和放量特征，也结合新闻摘要中资金流入相关描述，对短期方向作出判断。
+
+\section{仅行情输入预测案例}
+
+以下案例来自 \path|test/outputs/quotes_summary_5d_vllm_no_text_eval.json|。该实验使用同一目标日期、股票代码和真实标签，但 Prompt 中不包含新闻和研报摘要。
+
+\begin{quote}\small
+目标日期：2026-01-05
+
+股票代码：000001
+
+参考标签：涨，涨，跌
+
+预测标签：涨，涨，跌
+
+模型输出摘要：模型主要根据第 5 日收盘价反弹、成交量放大和振幅增加判断短期市场情绪活跃，因此预测未来 1 日和 3 日上涨；同时认为反弹后可能出现波动或回调，给出未来 7 日下跌判断。
+
+最终输出：涨，涨，跌
+\end{quote}
+
+与多源信息案例相比，仅行情输入模型的依据主要来自价格和量能变化，缺少外部事件和资金叙事的交叉验证。因此，在部分样本中，即使最终标签一致，两类模型给出的解释信息也存在明显差异。
+
+\section{提取失败样本说明}
+
+在多周期任务中，模型必须按固定格式输出三个方向标签，例如“涨，跌，涨”。如果模型输出包含多余解释、缺少某个预测周期，或没有给出可解析的三元标签，评测脚本会将其标记为“提取失败”。这类样本在包含失败统计中按 0 分计入，在排除失败统计中从分母中剔除。
+
+提取失败并不一定表示模型完全没有进行判断，也可能只是输出格式不符合自动解析要求。因此，后续系统可以通过更严格的结构化输出约束降低该问题，例如使用 JSON schema、函数调用式输出或单独的分类头。

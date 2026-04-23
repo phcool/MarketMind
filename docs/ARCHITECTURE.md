@@ -146,7 +146,7 @@ flowchart LR
 | Comments 流式总结 | `stock_daily_dashboard.py` → `/summarize_stream` |
 | News 标题总结 + Top ids | 同文件 → `/summarize_news_stream` |
 | News 正文二阶段、Report 近 2 篇、统一预测 | 待实现：可拆为独立脚本或服务，与 dashboard 共用 prompt 与 schema |
-| Quotes → 涨跌分类数据集 | `scripts/build_quotes_7d_dataset.py` → `train/dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
+| Quotes → 涨跌分类数据集 | `scripts/dataset/build_quotes_7d_dataset.py` → `train/dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
 | （历史）Quotes → GRPO 涨跌幅回归 | 仓库仍保留 `train/scripts/grpo/train_grpo_qwen.py` 等，**不作为当前推荐路径**；见 §10 |
 
 ---

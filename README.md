@@ -22,7 +22,7 @@
 
 ## `exports/` CSV 结构（主数据）
 
-合并、路径与 CSV 去重逻辑见 **`scripts/csv_io.py`**；行情字段映射见 **`scripts/fetch_stocks.py`**。
+合并、路径与 CSV 去重逻辑见 **`scripts/fetch/csv_io.py`**；行情字段映射见 **`scripts/fetch/fetch_stocks.py`**。
 
 | 文件 | 说明 |
 |------|------|
@@ -33,7 +33,7 @@
 
 ### 从 `quotes` 导出「7 日 K 线 → 下一日涨/跌」训练集
 
-脚本：`scripts/build_quotes_7d_dataset.py`  
+脚本：`scripts/dataset/build_quotes_7d_dataset.py`  
 
 从 `exports/quotes.csv` 读取 **`trade_date < --train-before`**（默认 `2026-01-01`）的行，以便 2021 年初样本仍有足够 **7 日回看**。**只输出**标签日（Day8）落在 **`[--date-start, --train-before)`** 的样本（默认 **2021-01-01** 至 **2026-01-01** 前一日）。**归一化统计**只在同一时间窗内的行情上估计（与 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §9.2 一致）。
 
@@ -42,26 +42,25 @@
 默认输出：`train/dataset/quotes_7d_pre2026_dataset.csv`。
 
 ```bash
-python scripts/build_quotes_7d_dataset.py
-python scripts/build_quotes_7d_dataset.py -o train/dataset/my_train.csv
-python scripts/build_quotes_7d_dataset.py --date-start 2021-01-01 --train-before 2026-01-01
+python scripts/dataset/build_quotes_7d_dataset.py
+python scripts/dataset/build_quotes_7d_dataset.py -o train/dataset/my_train.csv
+python scripts/dataset/build_quotes_7d_dataset.py --date-start 2021-01-01 --train-before 2026-01-01
 ```
 
 ### 批量思维链（qwen3-max，百炼 Batch API）
 
-脚本：`scripts/batch_qwen_cot_quotes_dataset.py`  
+脚本：`scripts/batch/batch_qwen_cot_quotes_dataset.py`  
 
-将数据集中的 **`prompt` + `label`** 封装为新 user 消息：展示原 K 线任务、**给出标准答案（涨/跌）**，要求模型在 **【思维链开始】…【思维链结束】** 之间写推理，最后**单独一行**输出与标准答案一致的「涨」或「跌」。生成符合 [`docs/Qwen_Batch_Call.md`](docs/Qwen_Batch_Call.md) 的 JSONL。依赖 **`openai`** SDK；环境变量 **`DASHBOARD_API_KEY` 或 `DASHSCOPE_API_KEY`**（与 `DASHSCOPE_BASE_URL`，默认北京兼容端点；会读取项目根目录 `.env`）。**单次在线试跑**（随机抽一条、同模版调用 `qwen3-max`）：`scripts/sample_qwen_cot_one.py`。
+将数据集中的 **`prompt` + `label`** 封装为新 user 消息：展示原 K 线任务、**给出标准答案（涨/跌）**，要求模型在 **【思维链开始】…【思维链结束】** 之间写推理，最后**单独一行**输出与标准答案一致的「涨」或「跌」。生成符合 [`docs/Qwen_Batch_Call.md`](docs/Qwen_Batch_Call.md) 的 JSONL。依赖 **`openai`** SDK；环境变量 **`DASHBOARD_API_KEY` 或 `DASHSCOPE_API_KEY`**（与 `DASHSCOPE_BASE_URL`，默认北京兼容端点；会读取项目根目录 `.env`）。
 
 **命令（两步）**：① **无参数**：从默认 `train/dataset/quotes_7d_pre2026_dataset.csv` 生成 `batch/cot_qwen_batch_input.jsonl`，上传 Batch 任务并写入 `batch/cot_qwen_batch_state.json`（不阻塞等待）。② **`--check-status`**：**只查一次**远端状态；若尚未结束则打印当前状态后退出，若已完成则下载 `batch/cot_qwen_batch_result.jsonl` 并合并为 **`train/dataset/quotes_7d_cot_from_batch.csv`**（列 `prompt`：思维链版任务说明；`completion`：模型全文）。试跑子集可设环境变量 **`BATCH_COT_LIMIT`** / **`BATCH_COT_OFFSET`**（仅第一步有效）。
 
 ```bash
 pip install openai
-python scripts/sample_qwen_cot_one.py
 # Step 1: build JSONL + submit batch (see batch/cot_qwen_batch_state.json)
-python scripts/batch_qwen_cot_quotes_dataset.py
+python scripts/batch/batch_qwen_cot_quotes_dataset.py
 # Step 2: one-shot status; when completed, download + merge CSV (repeat until done)
-python scripts/batch_qwen_cot_quotes_dataset.py --check-status
+python scripts/batch/batch_qwen_cot_quotes_dataset.py --check-status
 ```
 
 ### GRPO 强化学习训练（Qwen2.5-7B-Instruct）
@@ -88,7 +87,7 @@ uv run bash train/scripts/launch/run_grpo_8gpu.sh
 
 ---
 
-### A. 行情抓取：`scripts/fetch_stocks.py`
+### A. 行情抓取：`scripts/fetch/fetch_stocks.py`
 
 作用：通过 akshare 抓取日线行情并 **合并写入 `exports/quotes.csv`**（按 `symbol` + `trade_date` 去重覆盖）。
 
@@ -102,13 +101,13 @@ uv run bash train/scripts/launch/run_grpo_8gpu.sh
 用法：
 
 ```bash
-python scripts/fetch_stocks.py
-python scripts/fetch_stocks.py --add
+python scripts/fetch/fetch_stocks.py
+python scripts/fetch/fetch_stocks.py --add
 ```
 
 ---
 
-### B. 统一抓取：`scripts/fetch_market_data.py`（股吧 + 东财新闻 + 新浪研报列表）
+### B. 统一抓取：`scripts/fetch/fetch_market_data.py`（股吧 + 东财新闻 + 新浪研报列表）
 
 作用：按 `config/stocks.json` 依次抓取并写入 **`exports/comments.csv`**、**`exports/news.csv`**、**`exports/report.csv`**（均为按 `url` 去重合并）。
 
@@ -120,36 +119,36 @@ python scripts/fetch_stocks.py --add
 Checkpoint：`checkpoint/fetch_forum_checkpoint.json`（股吧按公司分页）、`checkpoint/fetch_news_<platform>_checkpoint.json`（新闻/研报按公司已完成的 `company_key`）。
 
 ```bash
-python scripts/fetch_market_data.py --mode all
-python scripts/fetch_market_data.py --mode comments --add
-python scripts/fetch_market_data.py --mode news
-python scripts/fetch_market_data.py --mode report --offset 5
+python scripts/fetch/fetch_market_data.py --mode all
+python scripts/fetch/fetch_market_data.py --mode comments --add
+python scripts/fetch/fetch_market_data.py --mode news
+python scripts/fetch/fetch_market_data.py --mode report --offset 5
 ```
 
-**新闻正文落盘**：`scripts/fetch_news_content_to_disk.py` 从 **`exports/news.csv`**（默认路径，可由 `--csv` 指定）读取 `url,symbol,title,date`，抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。失败时按指数退避重试：首次等待 `--retry-base-delay`（默认与 `--delay` 相同），每次再失败则等待时间翻倍，最多 `--max-attempts` 次（默认 5）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
+**新闻正文落盘**：`scripts/fetch/fetch_content_to_disk.py --mode news` 从 **`exports/news.csv`**（默认路径，可由 `--csv` 指定）读取 `url,symbol,title,date`，抓取东财正文（`#ContentBody`），写入 `Content/news/{YYYY-MM}/{sha256(url)}.txt`，支持断点续传（已存在且非空则跳过）。失败时按指数退避重试：首次等待 `--retry-base-delay`（默认与 `--delay` 相同），每次再失败则等待时间翻倍，最多 `--max-attempts` 次（默认 5）。默认板块「电力设备与新能源」、默认 `--since 2025-11-01`。**`--all`**：`config/stocks.json` 全部约 35 只股票、`news.date >= 2025-01-01`（可用 `--since` 覆盖起始日）。
 
 ```bash
-python scripts/fetch_news_content_to_disk.py
-python scripts/fetch_news_content_to_disk.py --all
-python scripts/fetch_news_content_to_disk.py --symbols 300750,300014 --since 2025-11-01 --force
+python scripts/fetch/fetch_content_to_disk.py --mode news
+python scripts/fetch/fetch_content_to_disk.py --mode news --all
+python scripts/fetch/fetch_content_to_disk.py --mode news --symbols 300750,300014 --since 2025-11-01 --force
 ```
 
-**研报正文落盘**：`scripts/fetch_report_content_to_disk.py` 从 **`exports/report.csv`**（默认，`--csv` 可改）读取行，复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。失败时指数退避重试：`--retry-base-delay`（默认同 `--delay`，默认 2s）、`--max-attempts`（默认 5）、`--timeout`。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
+**研报正文落盘**：`scripts/fetch/fetch_content_to_disk.py --mode report` 从 **`exports/report.csv`**（默认，`--csv` 可改）读取行，复用 `fetch_report_content.py` 的抓取与 `div.blk_container` 解析，写入 **`Content/report/{sha256(url)}.txt`**，头格式与看板缓存一致。失败时指数退避重试：`--retry-base-delay`（默认同 `--delay`，默认 2s）、`--max-attempts`（默认 5）、`--timeout`。默认板块「电力设备与新能源」；无 `--since` 时不按日期过滤。**`--all`**：全部约 35 只股票、`report.date >= 2025-01-01`（可用 `--since` 覆盖）。断点续传：已有非空正文则跳过。
 
 ```bash
-python scripts/fetch_report_content_to_disk.py
-python scripts/fetch_report_content_to_disk.py --all
-python scripts/fetch_report_content_to_disk.py --workers 2 --force
+python scripts/fetch/fetch_content_to_disk.py --mode report
+python scripts/fetch/fetch_content_to_disk.py --mode report --all
+python scripts/fetch/fetch_content_to_disk.py --mode report --workers 2 --force
 ```
 
 ---
 
-### C. 新浪研报正文回填：`scripts/fetch_report_content.py`
+### C. 新浪研报正文回填：`scripts/fetch/fetch_report_content.py`
 
 对 **`exports/report.csv` 中 `content` 为空** 的行抓正文并回写该 CSV。
 
 ```bash
-python scripts/fetch_report_content.py
+python scripts/fetch/fetch_report_content.py
 ```
 
 ## 可视化与LLM分析页面

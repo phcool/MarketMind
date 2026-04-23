@@ -1,0 +1,198 @@
+% !TEX root = ./main.tex
+
+\ustcsetup{
+  title                = {市场心智：基于 LLM 驱动的\\多源信息聚合与市场共识早期发现\\及其金融实践},
+  title*               = {MarketMind: LLM-based Multi-Source Integration and Market Consensus Discovery with Financial Practice},
+  author               = {彭晗},
+  author*              = {Han Peng},
+  speciality           = {计算机科学与技术},
+  speciality*          = {Computer Science and Technology},
+  supervisor           = {邢凯~教授},
+  supervisor*          = {Prof. Kai Xing},
+  % practice-supervisor  = {XXX~教授, XXX~教授},  % 专业/工程学位的实践导师
+  % practice-supervisor* = {Prof. XXX, Prof. XXX},
+  % date                 = {2025-01-01},  % 完成时间，默认为今日
+  %
+  % department           = {数学科学学院},  % 院系，本科生需要填写
+  student-id           = {PB22111636},  % 学号，本科生需要填写
+  %
+  % secret-level         = {秘密},     % 绝密|机密|秘密|控阅，注释本行则公开
+  % secret-level*        = {Secret},  % Top secret | Highly secret | Secret
+  % secret-year          = {10},      % 保密/控阅期限
+  %
+  % 数学字体
+  % math-style           = GB,  % 可选：GB, TeX, ISO
+  math-font            = xits,  % 可选：stix, xits, libertinus
+}
+
+
+% 加载宏包
+
+% 定理类环境宏包
+\usepackage{amsthm}
+
+% 插图
+\usepackage{graphicx}
+
+% 英文图题、表题
+\usepackage{bicaption}
+
+% 三线表
+\usepackage{booktabs}
+
+% 表注
+\usepackage{threeparttable}
+
+% 跨页表格
+\usepackage{longtable}
+
+% 算法
+\usepackage[ruled,linesnumbered]{algorithm2e}
+
+% SI 量和单位
+\usepackage{siunitx}
+
+% 参考文献使用 BibTeX + natbib 宏包
+% 顺序编码制
+\usepackage[sort]{natbib}
+\bibliographystyle{ustcthesis-numerical}
+
+% 著者-出版年制
+% \usepackage{natbib}
+% \bibliographystyle{ustcthesis-authoryear}
+
+% 本科生参考文献的著录格式
+% \usepackage[sort]{natbib}
+% \bibliographystyle{ustcthesis-bachelor}
+
+% 参考文献使用 BibLaTeX 宏包
+% \usepackage[style=ustcthesis-numeric]{biblatex}
+% \usepackage[bibstyle=ustcthesis-numeric,citestyle=ustcthesis-inline]{biblatex}
+% \usepackage[style=ustcthesis-authoryear]{biblatex}
+% \usepackage[style=ustcthesis-bachelor]{biblatex}
+% 声明 BibLaTeX 的数据库
+% \addbibresource{bib/ustc.bib}
+
+% 配置图片的默认目录
+\graphicspath{{figures/}}
+
+% 数学命令
+\makeatletter
+\newcommand\dif{%  % 微分符号
+  \mathop{}\!%
+  \ifustc@math@style@TeX
+    d%
+  \else
+    \mathrm{d}%
+  \fi
+}
+\makeatother
+\newcommand\eu{{\symup{e}}}
+\newcommand\iu{{\symup{i}}}
+
+% 用于写文档的命令
+\DeclareRobustCommand\cs[1]{\texttt{\char`\\#1}}
+\DeclareRobustCommand\env[1]{\texttt{#1}}
+\DeclareRobustCommand\pkg[1]{\textsf{#1}}
+\DeclareRobustCommand\file[1]{\nolinkurl{#1}}
+
+% hyperref 宏包在最后调用
+\usepackage{hyperref}
+
+\IfFontExistsTF{Times New Roman}{%
+  \newfontfamily\ustctimes{Times New Roman}%
+}{%
+  \newfontfamily\ustctimes{TeX Gyre Termes}%
+}
+
+\renewcommand\contentsname{\texorpdfstring{目\quad 录}{目录}}
+\renewcommand\bibname{\texorpdfstring{参\quad 考\quad 文\quad 献}{参考文献}}
+
+\makeatletter
+
+% 正文：小四宋体，英文和数字使用 Times New Roman，固定行距 20 磅，首行缩进 2 字符。
+\AtBeginDocument{%
+  \fontsize{12bp}{20bp}\selectfont
+  \setlength{\parskip}{0bp}%
+  \ctexset{autoindent=2}%
+}
+
+% 章、节、段标题与目录采用本科论文格式规范中的中文编号体系。
+\ctexset{
+  chapter = {
+    name       = {第,章},
+    number     = \chinese{chapter},
+    format     = \centering\heiti\fontsize{16bp}{20bp}\selectfont,
+    aftername  = \quad,
+    beforeskip = 24bp,
+    afterskip  = 18bp,
+  },
+  section = {
+    name       = {第,节},
+    number     = \chinese{section},
+    format     = \heiti\fontsize{15bp}{20bp}\selectfont,
+    aftername  = \quad,
+    beforeskip = 24bp,
+    afterskip  = 6bp,
+  },
+  subsection = {
+    number     = \chinese{subsection},
+    format     = \heiti\fontsize{14bp}{20bp}\selectfont,
+    aftername  = {、},
+    indent     = 0bp,
+    beforeskip = 12bp,
+    afterskip  = 6bp,
+  },
+}
+
+% 摘要：标题三号黑体；内容小四宋体/Times New Roman，固定行距 20 磅。
+\renewenvironment{abstract}{%
+  \ustcsetup{language=chinese}%
+  \clearpage
+  \phantomsection
+  \pdfbookmark[0]{摘要}{abstract.zh}%
+  {\centering\heiti\fontsize{16bp}{16bp}\selectfont 摘\quad 要\par}%
+  \vspace{18bp}%
+  \fontsize{12bp}{20bp}\selectfont
+}{%
+  \par\vspace{20bp}%
+  \begingroup
+    \setlength{\hangindent}{4em}%
+    \noindent\heiti 关键词：\songti\ustc@keywords@text\par
+  \endgroup
+  \ustc@reset@main@language
+}
+
+\renewenvironment{abstract*}{%
+  \ustcsetup{language=english}%
+  \clearpage
+  \phantomsection
+  \pdfbookmark[0]{ABSTRACT}{abstract.en}%
+  {\centering\ustctimes\bfseries\fontsize{16bp}{16bp}\selectfont ABSTRACT\par}%
+  \vspace{18bp}%
+  \ustctimes\fontsize{12bp}{20bp}\selectfont
+}{%
+  \par\vspace{20bp}%
+  \begingroup
+    \setlength{\hangindent}{6.5em}%
+    \noindent\ustctimes\bfseries Key Words:\space
+    \normalfont\ustctimes\ustc@keywords@en@text\par
+  \endgroup
+  \ustc@reset@main@language
+}
+
+% 目录：小四宋体，固定行距 20 磅；章左顶格加粗，节缩进 2 字符，段缩进 4 字符。
+\titlecontents{chapter}
+  [0bp]{\fontsize{12bp}{20bp}\selectfont\heiti}
+  {\contentspush{\thecontentslabel\quad}}{}
+  {\songti\ustc@leaders\thecontentspage}
+\titlecontents{section}
+  [2em]{\fontsize{12bp}{20bp}\selectfont}
+  {\contentspush{\thecontentslabel\quad}}{}
+  {\ustc@leaders\thecontentspage}
+\titlecontents{subsection}
+  [4em]{\fontsize{12bp}{20bp}\selectfont}
+  {\contentspush{\thecontentslabel、}}{}
+  {\ustc@leaders\thecontentspage}
+
+\makeatother

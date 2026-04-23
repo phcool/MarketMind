@@ -1,0 +1,48 @@
+% !TEX encoding = UTF-8
+% !TEX program = xelatex
+% !TEX spellcheck = en_US
+
+\documentclass[degree=bachelor,fontset=fandol]{ustcthesis}
+% degree      = doctor | master | bachelor
+% degree-type = academic | professional | engineering
+% language    = chinese | english
+% fontset     = windows | mac | ubuntu | fandol
+% review      = true | false  % 盲审模式
+
+% 加载宏包、全部的配置
+\input{ustcsetup}
+
+
+\begin{document}
+
+\maketitle
+\statement
+
+\frontmatter
+\include{chapters/abstract}
+\tableofcontents
+% \listoffigures
+% \listoftables
+% \listoffiguresandtables
+% \include{chapters/notation}
+
+\mainmatter
+\include{chapters/intro}
+\include{chapters/related_tech}
+\include{chapters/realtime_framework}
+\include{chapters/model_training}
+\include{chapters/system_implementation}
+\include{chapters/experiments}
+\include{chapters/conclusion}
+
+\nocite{araci2019finbert,lewis2020rag,bollen2011twitter,liu2020finrl,ye2024r2ag,zhang2025gnn,lee2024finllms,li2023llmfinance,nie2024llmfinancialapplications,zhou2025expertopinion,yang2023fingpt,wu2023bloomberggpt,lopezlira2023chatgptstock,elahi2024financialnewsllm,vaswani2017attention,ouyang2022instructgpt,shao2024deepseekmath,schulman2017ppo}
+\bibliography{bib/ustc}  % 参考文献使用 BibTeX 编译
+% \printbibliography       % 参考文献使用 BibLaTeX 编译
+
+\appendix
+\include{chapters/appendices}
+
+\backmatter
+\include{chapters/acknowledgements}
+
+\end{document}

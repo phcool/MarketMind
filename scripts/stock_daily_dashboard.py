@@ -3,14 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
-from csv_io import COMMENTS_CSV, NEWS_CSV, QUOTES_CSV, REPORT_CSV
-from fetch_report_content import fetch_report_plaintext
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from fetch.csv_io import COMMENTS_CSV, NEWS_CSV, QUOTES_CSV, REPORT_CSV
+from fetch.fetch_report_content import fetch_report_plaintext
 from stock_universe import load_sectors
 
 try:

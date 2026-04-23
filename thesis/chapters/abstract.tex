@@ -1,0 +1,22 @@
+% !TEX root = ../main.tex
+
+\ustcsetup{
+  keywords  = {大语言模型, 金融文本分析, 检索增强生成, 股票方向预测, 多源信息融合, 强化学习},
+  keywords* = {Large Language Models, Financial Text Analysis, Retrieval-Augmented Generation, Stock Direction Prediction, Multi-source Information Fusion, Reinforcement Learning},
+}
+
+\begin{abstract}
+随着金融市场中非结构化信息的快速增长，新闻报道、投资论坛评论、机构研报以及搜索引擎返回结果等文本数据逐渐成为影响市场预期与价格波动的重要信息来源。传统依赖价格、成交量等结构化指标的分析方法，往往难以及时反映投资者情绪变化和市场共识演化。针对这一问题，本文提出一个基于大语言模型的多源信息融合预测框架，用于在真实预测场景下实时获取并整合近期评论、新闻、研报及外部检索结果，对未来股票走势进行方向判断。
+
+本文首先设计了面向 Comments、News 与 Report 三类信息源的统一处理流程，对原始非结构化文本进行筛选、汇总与结构化表示；随后利用大语言模型对多源信息进行联合归纳，提取与未来价格变动相关的核心观点、潜在利好利空因素以及不同信息源之间的冲突与一致性，并输出未来 1 日、3 日和 7 日的涨跌预测结果。考虑到历史真实场景下外部信息难以完全回放，本文采用离线方式对方法可行性进行验证，构建了有无外部信息输入、微调前后模型对比的实验设置，以 Qwen2.5-7B-Instruct 为基础模型，对未来短期涨跌方向进行测试。
+
+实验结果表明，引入外部信息后模型的预测效果整体优于仅依赖历史行情信息的设置；在监督微调后，模型对未来走势的判断能力进一步提升，其中微调后的 Qwen2.5-7B-Instruct 在接入外部信息源时取得最高 56\% 的预测成功率，验证了多源检索增强与领域微调在股票方向预测中的有效性。本文的研究表明，面向真实应用场景的金融大模型系统，不仅需要具备文本理解能力，还需要具备实时信息接入、跨源证据整合与可扩展策略优化能力。基于此，本文进一步讨论了在监督微调基础上引入强化学习进行策略优化的可行路径，为后续构建更完整的智能投研系统奠定基础。
+\end{abstract}
+
+\begin{abstract*}
+With the rapid growth of unstructured information in financial markets, textual data such as news reports, investor forum comments, analyst reports, and search engine results have become important sources that influence market expectations and price fluctuations. Traditional methods based mainly on structured indicators such as prices and trading volume often fail to capture timely changes in investor sentiment and market consensus. To address this problem, this thesis proposes a multi-source information fusion framework based on large language models, which retrieves and integrates recent comments, news, reports, and external search results in realistic prediction scenarios to judge future stock price directions.
+
+The thesis first designs a unified processing pipeline for Comments, News, and Reports, including text filtering, summarization, and structured representation. It then uses a large language model to jointly summarize multi-source information, extract key opinions, positive and negative factors, and conflicts or consistency across information sources, and output stock direction predictions for the next 1, 3, and 7 days. Considering the difficulty of fully replaying historical external information, an offline validation setting is adopted to compare models with and without external information and before and after fine-tuning, using Qwen2.5-7B-Instruct as the base model.
+
+Experimental results show that incorporating external information generally improves prediction performance compared with relying only on historical market data. After supervised fine-tuning, the model further improves its ability to judge future trends. The fine-tuned Qwen2.5-7B-Instruct achieves a highest prediction success rate of 56\% when external information sources are used, demonstrating the effectiveness of multi-source retrieval enhancement and domain fine-tuning for stock direction prediction. This thesis further discusses the feasibility of introducing reinforcement learning for strategy optimization on top of supervised fine-tuning, laying a foundation for building a more complete intelligent investment research system.
+\end{abstract*}
