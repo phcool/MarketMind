@@ -119,6 +119,8 @@ Day1: open=0.4183, high=0.3760, low=0.3776, close=0.2944, volume=0.6060, amplitu
 
 CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv|，字段为 \texttt{prompt} 和 \texttt{completion}。其中 \texttt{prompt} 对应模型输入，\texttt{completion} 对应模型需要学习生成的分析过程与最终标签。
 
+该文件由 \path|scripts/batch/batch_qwen_cot_quotes_dataset.py| 生成。脚本将基础 7 日 K 线数据集中的 \texttt{prompt,label} 封装为 DashScope Batch 请求，使用 \texttt{qwen3-max} 生成解释性推理；批处理完成后，再把远端返回结果与原始样本合并为 SFT 所需的 \texttt{prompt,completion} 格式。
+
 \begin{table}[htbp]
   \centering
   \caption{CoT 监督微调样本字段}

@@ -1,3 +1,29 @@
+Metadata-Version: 2.4
+Name: marketmind
+Version: 0.1.0
+Summary: Market data collection, dashboarding, and training workflows.
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: akshare>=1.16.0
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: flask>=3.1.0
+Requires-Dist: openai>=2.0.0
+Requires-Dist: pandas>=2.2.0
+Requires-Dist: playwright>=1.52.0
+Requires-Dist: python-dotenv>=1.1.0
+Requires-Dist: requests>=2.32.0
+Requires-Dist: transformers>=4.57.6
+Provides-Extra: train
+Requires-Dist: accelerate>=1.13.0; extra == "train"
+Requires-Dist: datasets>=4.8.0; extra == "train"
+Requires-Dist: deepspeed>=0.18.0; extra == "train"
+Requires-Dist: peft>=0.18.0; extra == "train"
+Requires-Dist: sentencepiece>=0.2.0; extra == "train"
+Requires-Dist: torch>=2.9.0; extra == "train"
+Requires-Dist: transformers<5,>=4.57.0; extra == "train"
+Requires-Dist: trl>=0.29.0; extra == "train"
+Requires-Dist: vllm>=0.12.0; extra == "train"
+
 # A股重点板块数据仓库
 
 这个项目围绕 7 大行业板块股票，维护了三类核心数据（行情、论坛、资讯/研报），数据落在 **`exports/*.csv`**（UTF-8），并提供可视化分析页面；**不再使用 PostgreSQL**。

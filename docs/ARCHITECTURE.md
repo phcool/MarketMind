@@ -33,7 +33,7 @@
    - **全局情绪分布**：正面 / 中性 / 负面比例（或概率），用于表征当日讨论对股价的「共识情绪」。
 3. **落盘为「情绪共识文件」**：将上述 JSON（及可选元数据：股票、日期、原始条数、模型版本）写入约定路径或数据库表，作为下游「综合预测」模块的 **Comments 侧输入**。
 
-当前 `stock_daily_dashboard.py` 中的流式总结即该链路的前端形态；未来可将同样 prompt 与 schema 固化到批处理脚本，并统一输出文件名或表结构。
+当前工程中 `src/app.py` 主要承担实时抓取与展示功能；Comments 情绪共识的 LLM 总结可在此基础上扩展为独立批处理脚本或在线接口，并统一输出文件名或表结构。
 
 ---
 
@@ -143,9 +143,10 @@ flowchart LR
 
 | 能力 | 现状 / 备注 |
 |------|-------------|
-| Comments 流式总结 | `stock_daily_dashboard.py` → `/summarize_stream` |
-| News 标题总结 + Top ids | 同文件 → `/summarize_news_stream` |
-| News 正文二阶段、Report 近 2 篇、统一预测 | 待实现：可拆为独立脚本或服务，与 dashboard 共用 prompt 与 schema |
+| 实时信息展示 | `src/app.py` + `src/live_fetch.py` → `/api/stock/<symbol>` |
+| Comments 流式总结 | 待实现：可基于现有实时抓取结果增加 LLM 总结接口 |
+| News 标题总结 + Top ids | 待实现：可拆为批处理脚本或在线接口 |
+| News 正文二阶段、Report 近 2 篇、统一预测 | 待实现：可拆为独立脚本或服务，并复用统一 prompt 与 schema |
 | Quotes → 涨跌分类数据集 | `scripts/dataset/build_quotes_7d_dataset.py` → `train/dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
 | （历史）Quotes → GRPO 涨跌幅回归 | 仓库仍保留 `train/scripts/grpo/train_grpo_qwen.py` 等，**不作为当前推荐路径**；见 §10 |
 

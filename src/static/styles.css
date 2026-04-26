@@ -146,6 +146,13 @@ body {
   padding: 22px;
 }
 
+.summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .summary h2 {
   margin: 0 0 10px;
   font-size: 30px;
@@ -170,6 +177,103 @@ body {
 
 .group-head h2 {
   margin: 0;
+}
+
+.summary-trigger {
+  border: 1px solid rgba(30, 122, 95, 0.18);
+  border-radius: 999px;
+  background: rgba(30, 122, 95, 0.08);
+  color: var(--accent);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.summary-trigger:hover {
+  background: rgba(30, 122, 95, 0.14);
+}
+
+.predict-trigger {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.summary-trigger.secondary {
+  background: rgba(217, 120, 65, 0.08);
+  border-color: rgba(217, 120, 65, 0.18);
+  color: var(--accent-2);
+}
+
+.summary-trigger.secondary:hover {
+  background: rgba(217, 120, 65, 0.14);
+}
+
+.summary-trigger.tertiary {
+  background: rgba(88, 100, 86, 0.08);
+  border-color: rgba(88, 100, 86, 0.18);
+  color: var(--muted);
+}
+
+.summary-trigger.tertiary:hover {
+  background: rgba(88, 100, 86, 0.14);
+}
+
+.group-collapsible {
+  padding: 0;
+  overflow: hidden;
+}
+
+.group-collapsible .group-head {
+  margin: 0;
+  padding: 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.group-collapsible .group-head::-webkit-details-marker {
+  display: none;
+}
+
+.group-collapsible .group-head::after {
+  content: "展开";
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.group-collapsible[open] .group-head::after {
+  content: "收起";
+}
+
+.group-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.llm-summary {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px dashed rgba(30, 122, 95, 0.22);
+  border-radius: 18px;
+  background: rgba(248, 252, 249, 0.9);
+}
+
+.prediction-box {
+  margin-top: 16px;
+  margin-bottom: 0;
+}
+
+.llm-summary.is-loading {
+  border-style: solid;
+  background: rgba(255, 248, 236, 0.95);
+}
+
+.llm-summary.is-error {
+  border-color: rgba(161, 49, 43, 0.22);
+  background: rgba(255, 245, 244, 0.95);
 }
 
 .card-list {
@@ -228,6 +332,11 @@ body {
   }
 
   .group-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .summary-head {
     align-items: flex-start;
     flex-direction: column;
   }
