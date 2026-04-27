@@ -40,6 +40,8 @@ DEFAULT_VAL_CSV = REPO_ROOT / "dataset" / "quotes_summary_5d_2026-03-01_to_2026-
 
 _LOG = logging.getLogger(__name__)
 
+_DIRECTION_REWARD_WEIGHTS = (0.50, 0.30, 0.20)
+
 _FINAL_PATTERNS = {
     "future_1d": re.compile(r"未来\s*1\s*个?交易日\s*[:：]\s*(涨|跌|上涨|下跌)"),
     "future_3d": re.compile(r"未来\s*3\s*个?交易日\s*[:：]\s*(涨|跌|上涨|下跌)"),
@@ -286,26 +288,35 @@ def make_direction_triplet_reward():
         rewards: list[float] = []
         parse_ok = 0
         full_match = 0
+        horizon_matches = [0, 0, 0]
+        horizon_valid = [0, 0, 0]
         for comp, gt1, gt3, gt7 in zip(completions, future_1d, future_3d, future_7d):
             pred1, pred3, pred7 = parse_prediction_triplet(_completion_to_text(comp))
             preds = [pred1, pred3, pred7]
             gts = [gt1, gt3, gt7]
             matched = 0
             valid = 0
-            for pred, gt in zip(preds, gts):
+            weighted_reward = 0.0
+            for idx, (pred, gt) in enumerate(zip(preds, gts)):
                 if pred is None:
                     continue
                 valid += 1
+                horizon_valid[idx] += 1
                 if pred == gt:
                     matched += 1
+                    horizon_matches[idx] += 1
+                    weighted_reward += _DIRECTION_REWARD_WEIGHTS[idx]
             if valid == 3:
                 parse_ok += 1
             if matched == 3 and valid == 3:
                 full_match += 1
-            rewards.append(matched / 3.0)
+            rewards.append(weighted_reward)
         if log_metric and rewards:
             log_metric("direction_parse_success_rate", parse_ok / len(rewards))
             log_metric("direction_full_match_rate", full_match / len(rewards))
+            log_metric("direction_1d_match_rate", horizon_matches[0] / max(1, horizon_valid[0]))
+            log_metric("direction_3d_match_rate", horizon_matches[1] / max(1, horizon_valid[1]))
+            log_metric("direction_7d_match_rate", horizon_matches[2] / max(1, horizon_valid[2]))
         return rewards
 
     direction_triplet_reward.__name__ = "direction_triplet_reward"
