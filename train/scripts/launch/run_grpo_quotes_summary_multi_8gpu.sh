@@ -6,9 +6,12 @@ cd "$(dirname "$0")/../../.."
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
+export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
 export TOKENIZERS_PARALLELISM=false
 
-torchrun --nproc_per_node=8 train/scripts/grpo/train_grpo_quotes_summary_multi.py \
+accelerate launch \
+  --config_file train/configs/accelerate/deepspeed_zero3.yaml \
+  train/scripts/grpo/train_grpo_quotes_summary_multi.py \
   --train_file dataset/quotes_summary_5d_2026-01-01_to_2026-03-01.csv \
   --eval_file dataset/quotes_summary_5d_2026-03-01_to_2026-04-01.csv \
   --output_dir /nfs/hanpeng/huggingface/models/qwen2_5_grpo_quotes_summary_multi \
