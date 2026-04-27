@@ -2,11 +2,15 @@
 
 \chapter{关键 Prompt 示例}
 
+\section{项目仓库说明}
+
+为便于复现本文系统的主要实现流程，项目源代码已托管在 GitHub 仓库 \url{https://github.com/phcool/MarketMind.git}。该仓库包含在线展示系统、数据采集与预处理流程、监督微调与强化学习训练实现，以及离线评测与实验分析所需的主要代码。
+
 本附录给出本文实验中使用的主要 Prompt 模板。为保证版面可读性，以下内容对部分重复字段进行了省略，但保留任务说明、输入组织方式和输出约束。
 
 \section{7 日 K 线单周期预测 Prompt}
 
-该 Prompt 由 \path|scripts/dataset/build_quotes_7d_dataset.py| 构造，用于根据过去 7 个交易日的归一化行情特征预测第 8 个交易日的涨跌方向。输入字段包括开盘价、最高价、最低价、收盘价、成交量、振幅、涨跌幅和换手率。
+该 Prompt 用于根据过去 7 个交易日的归一化行情特征预测第 8 个交易日的涨跌方向。输入字段包括开盘价、最高价、最低价、收盘价、成交量、振幅、涨跌幅和换手率。
 
 \begin{quote}\small
 过去 7 个交易日的 K 线数据如下（归一化后）：
@@ -40,7 +44,7 @@ Day7: open=0.2589, high=0.2240, low=0.3154, close=0.2419, volume=0.1768, amplitu
 
 \section{多源信息 1/3/7 日预测 Prompt}
 
-多源信息评测 Prompt 由 \path|test/eval_quotes_summary_5d_vllm.py| 构造。该模板在历史 K 线之外加入新闻摘要和研报摘要，并要求模型同时输出未来 1、3、7 个交易日的方向组合。
+多源信息评测 Prompt 在历史 K 线之外加入新闻摘要和研报摘要，并要求模型同时输出未来 1、3、7 个交易日的方向组合。
 
 \begin{quote}\small
 下面是一条股票日度样本，请根据该股票在目标日期当天可见的信息，预测未来短期走势。
@@ -86,13 +90,13 @@ summary=研报摘要内容……
 
 \section{仅行情输入对照 Prompt}
 
-仅行情输入对照实验由 \path|test/eval_quotes_summary_5d_vllm_no_text.py| 构造。其输入与多源 Prompt 使用同一批样本和同一组标签，但移除 news 与 report 摘要，只保留 5 日归一化 K 线，从而用于观察外部文本信息带来的增益。
+仅行情输入对照实验使用与多源 Prompt 相同的一批样本和同一组标签，但移除 news 与 report 摘要，只保留 5 日归一化 K 线，从而用于观察外部文本信息带来的增益。
 
 \chapter{数据样例}
 
 \section{7 日 K 线训练数据格式}
 
-7 日 K 线训练集文件为 \path|train/dataset/quotes_7d_pre2026_dataset.csv|，字段为 \texttt{prompt} 和 \texttt{label}。其中 \texttt{prompt} 是过去 7 个交易日的归一化 K 线文本，\texttt{label} 是第 8 个交易日相对第 7 个交易日的真实涨跌方向。
+7 日 K 线训练集字段为 \texttt{prompt} 和 \texttt{label}。其中 \texttt{prompt} 是过去 7 个交易日的归一化 K 线文本，\texttt{label} 是第 8 个交易日相对第 7 个交易日的真实涨跌方向。
 
 \begin{table}[htbp]
   \centering
@@ -117,9 +121,9 @@ Day1: open=0.4183, high=0.3760, low=0.3776, close=0.2944, volume=0.6060, amplitu
 
 \section{CoT 监督微调数据格式}
 
-CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv|，字段为 \texttt{prompt} 和 \texttt{completion}。其中 \texttt{prompt} 对应模型输入，\texttt{completion} 对应模型需要学习生成的分析过程与最终标签。
+CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。其中 \texttt{prompt} 对应模型输入，\texttt{completion} 对应模型需要学习生成的分析过程与最终标签。
 
-该文件由 \path|scripts/batch/batch_qwen_cot_quotes_dataset.py| 生成。脚本将基础 7 日 K 线数据集中的 \texttt{prompt,label} 封装为 DashScope Batch 请求，使用 \texttt{qwen3-max} 生成解释性推理；批处理完成后，再把远端返回结果与原始样本合并为 SFT 所需的 \texttt{prompt,completion} 格式。
+该数据通过批处理方式生成。系统将基础 7 日 K 线数据集中的 \texttt{prompt,label} 封装为 DashScope Batch 请求，使用 \texttt{qwen3-max} 生成解释性推理；批处理完成后，再把远端返回结果与原始样本合并为 SFT 所需的 \texttt{prompt,completion} 格式。
 
 \begin{table}[htbp]
   \centering
@@ -134,11 +138,11 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
   \end{tabular}
 \end{table}
 
-训练脚本在 tokenize 时使用 Qwen chat template 将样本转为 user-assistant 对话，并对 prompt 部分 label 置为 \(-100\)，使损失只作用于 assistant 回复部分。
+训练过程中在 tokenize 时使用 Qwen chat template 将样本转为 user-assistant 对话，并对 prompt 部分 label 置为 \(-100\)，使损失只作用于 assistant 回复部分。
 
 \section{多源信息评测数据格式}
 
-多源信息数据由 \path|scripts/dataset/build_quotes_summary_5d_dataset.py| 构造，字段包括目标日期、股票代码、5 日 K 线、新闻摘要、研报摘要和未来多周期标签。数据集说明见 \path|dataset/README.md|。
+多源信息数据字段包括目标日期、股票代码、5 日 K 线、新闻摘要、研报摘要和未来多周期标签。
 
 \begin{table}[htbp]
   \centering
@@ -157,7 +161,7 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
   \end{tabular}
 \end{table}
 
-其中，未来标签字段在数据文件中的实际列名为 \path|future_1_3_7_trade_day_labels|。未来标签通过比较目标日期收盘价与未来第 1、第 3、第 7 个交易日收盘价得到。若未来收盘价大于或等于目标日期收盘价，则标记为“涨”，否则标记为“跌”。例如“涨，涨，跌”表示未来 1 日和 3 日方向为上涨，未来 7 日方向为下跌。
+其中，未来标签字段为 \texttt{future\_1\_3\_7\_trade\_day\_labels}。未来标签通过比较目标日期收盘价与未来第 1、第 3、第 7 个交易日收盘价得到。若未来收盘价大于或等于目标日期收盘价，则标记为“涨”，否则标记为“跌”。例如“涨，涨，跌”表示未来 1 日和 3 日方向为上涨，未来 7 日方向为下跌。
 
 \chapter{实验参数配置}
 
@@ -184,7 +188,7 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
 
 \section{LoRA 监督微调参数}
 
-本文使用 \path|train/scripts/sft/train_sft_qwen_lora.py| 对 Qwen2.5-7B-Instruct 进行 LoRA 监督微调。主要参数如下。
+本文使用 LoRA 对 Qwen2.5-7B-Instruct 进行监督微调。主要参数如下。
 
 \begin{table}[htbp]
   \centering
@@ -194,7 +198,7 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
     参数 & 取值 & 说明 \\
     \midrule
     基础模型 & Qwen2.5-7B-Instruct & 指令模型基座 \\
-    训练文件 & CoT 训练集 & 文件名为 \path|quotes_7d_cot_from_batch.csv| \\
+    训练数据 & CoT 训练集 & 由 7 日 K 线样本扩展得到 \\
     最大序列长度 & 2048 & token 截断长度 \\
     训练轮数 & 2 & \texttt{num\_train\_epochs} \\
     学习率 & \(2\times10^{-4}\) & LoRA adapter 学习率 \\
@@ -225,7 +229,7 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
   \end{tabular}
 \end{table}
 
-多卡训练由 \path|train/scripts/launch/run_sft_qwen_lora_8gpu.sh| 启动，默认使用 8 张 GPU，环境变量中设置 \texttt{CUDA\_VISIBLE\_DEVICES=0,1,2,3,4,5,6,7}，并通过 \texttt{torchrun} 启动训练进程。
+多卡训练默认使用 8 张 GPU，环境变量中设置 \texttt{CUDA\_VISIBLE\_DEVICES=0,1,2,3,4,5,6,7}，并通过 \texttt{torchrun} 启动训练进程。
 
 \section{vLLM 评测参数}
 
@@ -238,8 +242,8 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
     \toprule
     参数 & 取值 & 说明 \\
     \midrule
-    基础模型 & \path|Qwen/Qwen2.5-7B-Instruct| & 推理基座 \\
-    LoRA adapter & \path|qwen2_5_sft_cot_lora| & 监督微调 adapter \\
+    基础模型 & Qwen/Qwen2.5-7B-Instruct & 推理基座 \\
+    LoRA adapter & LoRA 微调权重 & 监督微调 adapter \\
     temperature & 0.0 & 确定性解码 \\
     top\_p & 1.0 & 不额外截断概率质量 \\
     max new tokens & 4096 & 多源输入组最大生成长度 \\
@@ -251,13 +255,13 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
   \end{tabular}
 \end{table}
 
-评测脚本使用正则表达式从模型输出中抽取最终一行“涨，跌，涨”形式的三元标签。如果无法抽取合法标签，则记为“提取失败”。平均准确率按三个预测位置逐项计分。
+评测过程使用正则表达式从模型输出中抽取最终一行“涨，跌，涨”形式的三元标签。如果无法抽取合法标签，则记为“提取失败”。平均准确率按三个预测位置逐项计分。
 
 \chapter{部分预测案例输出}
 
 \section{多源信息预测案例}
 
-以下案例来自 \path|test/outputs/quotes_summary_5d_vllm_eval.json|。目标样本为股票 \texttt{000001} 在 2026-01-05 的预测任务，真实标签为“涨，涨，跌”，模型预测结果也为“涨，涨，跌”。
+以下案例来自多源信息评测输出。目标样本为股票 \texttt{000001} 在 2026-01-05 的预测任务，真实标签为“涨，涨，跌”，模型预测结果也为“涨，涨，跌”。
 
 \begin{quote}\small
 目标日期：2026-01-05
@@ -277,7 +281,7 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
 
 \section{仅行情输入预测案例}
 
-以下案例来自 \path|test/outputs/quotes_summary_5d_vllm_no_text_eval.json|。该实验使用同一目标日期、股票代码和真实标签，但 Prompt 中不包含新闻和研报摘要。
+以下案例来自仅行情输入评测输出。该实验使用同一目标日期、股票代码和真实标签，但 Prompt 中不包含新闻和研报摘要。
 
 \begin{quote}\small
 目标日期：2026-01-05
@@ -297,6 +301,6 @@ CoT 风格监督微调文件为 \path|train/dataset/quotes_7d_cot_from_batch.csv
 
 \section{提取失败样本说明}
 
-在多周期任务中，模型必须按固定格式输出三个方向标签，例如“涨，跌，涨”。如果模型输出包含多余解释、缺少某个预测周期，或没有给出可解析的三元标签，评测脚本会将其标记为“提取失败”。这类样本在包含失败统计中按 0 分计入，在排除失败统计中从分母中剔除。
+在多周期任务中，模型必须按固定格式输出三个方向标签，例如“涨，跌，涨”。如果模型输出包含多余解释、缺少某个预测周期，或没有给出可解析的三元标签，评测过程会将其标记为“提取失败”。这类样本在包含失败统计中按 0 分计入，在排除失败统计中从分母中剔除。
 
 提取失败并不一定表示模型完全没有进行判断，也可能只是输出格式不符合自动解析要求。因此，后续系统可以通过更严格的结构化输出约束降低该问题，例如使用 JSON schema、函数调用式输出或单独的分类头。
