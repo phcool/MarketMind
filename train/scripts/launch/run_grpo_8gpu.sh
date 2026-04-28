@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# 8-GPU GRPO + DeepSpeed ZeRO-3 + vLLM (colocate, default in train_grpo_qwen.py).
+# 8-GPU GRPO + DeepSpeed ZeRO-3 + vLLM (colocate by default).
+# Default task:
+#   7-day K-line prompt -> think first -> final 1/3/7-day directions
+# Default train/eval files:
+#   dataset/quotes_7d_multi_pre2026_dataset.csv
+#   dataset/quotes_7d_multi_eval_20260101_20260228.csv
 # Run from repository root:
 #   bash train/scripts/launch/run_grpo_8gpu.sh
 # Optional extra args are forwarded to the Python script.
@@ -12,5 +17,5 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 
 accelerate launch \
   --config_file train/configs/accelerate/deepspeed_zero3.yaml \
-  train/scripts/grpo/train_grpo_qwen.py --reward_exp_divisor 5 \
+  train/scripts/grpo/train_grpo_qwen.py \
   "$@"

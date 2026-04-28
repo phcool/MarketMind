@@ -165,6 +165,22 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
 
 \chapter{实验参数配置}
 
+\section{主要数据集概览}
+
+\begin{table}[htbp]
+  \centering
+  \caption{本文使用的主要数据集概览}
+  \begin{tabular}{p{0.23\textwidth}p{0.19\textwidth}p{0.22\textwidth}p{0.16\textwidth}}
+    \toprule
+    数据集 & 主要输入 & 标签形式 & 样本数 \\
+    \midrule
+    7 日 K 线监督数据 & 连续 7 个交易日归一化 K 线 & 下一交易日涨/跌 & 339287 \\
+    CoT 监督微调数据 & 7 日 K 线 Prompt & 分析过程 + 最终涨/跌 & 599871 \\
+    多源信息评测数据 & 5 日 K 线 + 新闻摘要 + 研报摘要 & 未来 1、3、7 日涨跌组合 & 1691 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \section{数据集构建参数}
 
 \begin{table}[htbp]
@@ -189,6 +205,33 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
 \section{LoRA 监督微调参数}
 
 本文使用 LoRA 对 Qwen2.5-7B-Instruct 进行监督微调。主要参数如下。
+
+\begin{table}[htbp]
+  \centering
+  \caption{LoRA 监督微调的主要训练参数}
+  \begin{tabular}{p{0.32\textwidth}p{0.42\textwidth}}
+    \toprule
+    参数项 & 配置值 \\
+    \midrule
+    基础模型 & Qwen2.5-7B-Instruct \\
+    微调方式 & LoRA \\
+    LoRA 秩 \(r\) & 64 \\
+    LoRA \(\alpha\) & 128 \\
+    LoRA dropout & 0.05 \\
+    目标模块 & 注意力投影层与前馈网络关键线性层 \\
+    训练轮数 & 2 \\
+    学习率 & \(2\times10^{-4}\) \\
+    学习率调度 & cosine \\
+    warmup ratio & 0.03 \\
+    单卡 batch size & 1 \\
+    梯度累积步数 & 16 \\
+    有效 batch size & 128（8 卡） \\
+    最大序列长度 & 2048 tokens \\
+    精度设置 & bfloat16 \\
+    稳定性设置 & gradient checkpointing, safetensors \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \begin{table}[htbp]
   \centering
@@ -231,6 +274,35 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
 
 多卡训练默认使用 8 张 GPU，环境变量中设置 \texttt{CUDA\_VISIBLE\_DEVICES=0,1,2,3,4,5,6,7}，并通过 \texttt{torchrun} 启动训练进程。
 
+\section{GRPO 强化学习参数}
+
+多周期方向 GRPO 强化学习阶段使用纯 7 日 K 线构造的未来 1、3、7 个交易日方向数据，其主要训练配置如下，其中包括训练/验证数据来源、组内采样规模、上下文长度限制以及平均方向奖励设置。
+
+\begin{table}[htbp]
+  \centering
+  \caption{多周期方向 GRPO 训练的主要参数设置}
+  \begin{tabular}{p{0.32\textwidth}p{0.42\textwidth}}
+    \toprule
+    参数项 & 配置值 \\
+    \midrule
+    基础模型 & Qwen2.5-7B-Instruct \\
+    训练数据 & 7 日 K 线多周期方向数据 \\
+    验证数据 & 2026 年多周期方向评测集 \\
+    学习率 & \(1\times10^{-6}\) \\
+    单卡 batch size & 1 \\
+    梯度累积步数 & 4 \\
+    训练轮数 & 1 \\
+    组内采样数 \texttt{num\_generations} & 8 \\
+    最大 Prompt 长度 & 4096 tokens \\
+    最大 completion 长度 & 768 tokens \\
+    主奖励形式 & 未来 1/3/7 日方向逐项匹配，奖励取三项平均值 \\
+    Rollout 方式 & vLLM colocate \\
+    启动方式 & 8 卡 \texttt{accelerate launch} \\
+    恢复机制 & 自动恢复最近 checkpoint \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \section{vLLM 评测参数}
 
 多源信息评测使用 vLLM 加载基础模型和 LoRA adapter。主要参数如下。
@@ -257,27 +329,6 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
 
 评测过程使用正则表达式从模型输出中抽取最终一行“涨，跌，涨”形式的三元标签。如果无法抽取合法标签，则记为“提取失败”。平均准确率按三个预测位置逐项计分。
 
-\chapter{部分预测案例输出}
-
-\section{多源信息预测案例}
-
-以下案例来自多源信息评测输出。目标样本为股票 \texttt{000001} 在 2026-01-05 的预测任务，真实标签为“涨，涨，跌”，模型预测结果也为“涨，涨，跌”。
-
-\begin{quote}\small
-目标日期：2026-01-05
-
-股票代码：000001
-
-参考标签：涨，涨，跌
-
-预测标签：涨，涨，跌
-
-模型输出摘要：过去 5 日 K 线呈现先抑后扬走势，目标日出现明显反弹，成交量和换手率显著放大，显示资金介入迹象。新闻摘要中出现主力资金连续净流入等信息，说明市场情绪有所改善。综合判断，未来 1 日和 3 日可能延续反弹；但考虑短期反弹后的获利回吐和前期压力，未来 7 日存在回调可能。
-
-最终输出：涨，涨，跌
-\end{quote}
-
-该案例体现了多源信息输入的作用：模型不仅使用 K 线中的反弹和放量特征，也结合新闻摘要中资金流入相关描述，对短期方向作出判断。
 
 \section{仅行情输入预测案例}
 
