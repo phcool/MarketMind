@@ -335,7 +335,7 @@ def build_argparser() -> argparse.ArgumentParser:
         default=4096,
         help="Left-truncate templated prompts to this many tokens; also sets vLLM context to max_prompt+completion.",
     )
-    p.add_argument("--max_completion_length", type=int, default=768)
+    p.add_argument("--max_completion_length", type=int, default=2048)
     p.add_argument("--logging_steps", type=int, default=10)
     p.add_argument("--save_steps", type=int, default=500)
     p.add_argument(
