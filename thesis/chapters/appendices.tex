@@ -33,13 +33,29 @@ Day7: open=0.2589, high=0.2240, low=0.3154, close=0.2419, volume=0.1768, amplitu
 在监督微调数据中，输入仍为 7 日归一化 K 线，但目标输出由单字标签扩展为“分析过程 + 最终标签”。该设计用于让模型学习更稳定的任务解释方式和最终答案格式。
 
 \begin{quote}\small
+过去 7 个交易日的 K 线数据如下（归一化后）：
+
+Day1: open=0.4183, high=0.3760, low=0.3776, close=0.2944, volume=0.6060, amplitude=3.25, pct\_change=-2.2840, turnover=0.3349
+
+Day2: open=0.3028, high=0.2840, low=0.3651, close=0.2742, volume=0.4130, amplitude=1.57, pct\_change=-0.4307, turnover=0.1767
+
+……
+
+Day7: open=0.2589, high=0.2240, low=0.3154, close=0.2419, volume=0.1768, amplitude=1.21, pct\_change=-0.8794, turnover=0.0527
+
+请根据上文 Day1--Day7 的归一化 K 线，预测下一个交易日（Day8）相对前一日是涨还是跌。
+
+【输出要求（必须严格遵守）】
+
+请先分析 K 线趋势、量能与波动；将推理过程写在下面一对标记之间（只写推理过程）：
+
 【思维链开始】
 
-观察过去 7 日走势，价格呈现连续下跌趋势：从 Day1 收盘一路下行至 Day7 收盘，且最近几日高点不断降低，说明短期空头力量较强。成交量没有出现明显放量反转信号，短线修复动能不足。综合趋势、量能与 K 线形态，短期惯性下跌概率较大。
+（在此撰写推理过程）
 
 【思维链结束】
 
-跌
+思维链结束后，请单独一行输出最终答案，仅一个字：“涨”或“跌”，不要引号、标点或其他文字。
 \end{quote}
 
 \section{多源信息 1/3/7 日预测 Prompt}
@@ -163,6 +179,25 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
 
 其中，未来标签字段为 \texttt{future\_1\_3\_7\_trade\_day\_labels}。未来标签通过比较目标日期收盘价与未来第 1、第 3、第 7 个交易日收盘价得到。若未来收盘价大于或等于目标日期收盘价，则标记为“涨”，否则标记为“跌”。例如“涨，涨，跌”表示未来 1 日和 3 日方向为上涨，未来 7 日方向为下跌。
 
+\section{多周期 GRPO 训练数据格式}
+
+多周期 GRPO 训练数据同样基于 7 日归一化 K 线构造，但标签不再是单个下一交易日方向，而是未来 1、3、7 个交易日方向组合。该数据由 \texttt{build\_quotes\_7d\_multi\_dataset.py} 生成，训练文件为 \texttt{quotes\_7d\_multi\_pre2026\_dataset.csv}，验证文件为 \texttt{quotes\_7d\_multi\_eval\_20260101\_20260228.csv}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{多周期 GRPO 训练样本字段}
+  \begin{tabular}{@{}p{0.20\textwidth}p{0.68\textwidth}@{}}
+    \toprule
+    字段 & 含义 \\
+    \midrule
+    \texttt{prompt} & 过去 7 个交易日的归一化 K 线文本，以及要求模型先分析、后输出三项最终方向的任务说明 \\
+    \texttt{labels} & 未来第 1、第 3、第 7 个交易日相对 Day7 收盘价的方向组合，例如“涨，跌，涨” \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+其中，表中的 \texttt{labels} 对应 CSV 中的完整字段 \texttt{future\_1\_3\_7\_trade\_day\_labels}。GRPO 训练脚本也兼容 \texttt{prompt,completion} 两列格式，但要求 \texttt{completion} 中能够解析出未来 1、3、7 个交易日的最终“涨/跌”结果。奖励函数会逐项比较三项方向标签，并取平均正确率作为该 completion 的 reward。
+
 \chapter{实验参数配置}
 
 \section{主要数据集概览}
@@ -177,6 +212,7 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
     7 日 K 线监督数据 & 连续 7 个交易日归一化 K 线 & 下一交易日涨/跌 & 339287 \\
     CoT 监督微调数据 & 7 日 K 线 Prompt & 分析过程 + 最终涨/跌 & 599871 \\
     多源信息评测数据 & 5 日 K 线 + 新闻摘要 + 研报摘要 & 未来 1、3、7 日涨跌组合 & 1691 \\
+    GRPO 多周期方向数据 & 7 日 K 线 Prompt & 未来 1、3、7 日涨跌组合 & 由行情窗口生成 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -294,7 +330,7 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
     训练轮数 & 1 \\
     组内采样数 \texttt{num\_generations} & 8 \\
     最大 Prompt 长度 & 4096 tokens \\
-    最大 completion 长度 & 768 tokens \\
+    最大 completion 长度 & 2048 tokens \\
     主奖励形式 & 未来 1/3/7 日方向逐项匹配，奖励取三项平均值 \\
     Rollout 方式 & vLLM colocate \\
     启动方式 & 8 卡 \texttt{accelerate launch} \\
@@ -329,26 +365,6 @@ CoT 风格监督微调数据字段为 \texttt{prompt} 和 \texttt{completion}。
 
 评测过程使用正则表达式从模型输出中抽取最终一行“涨，跌，涨”形式的三元标签。如果无法抽取合法标签，则记为“提取失败”。平均准确率按三个预测位置逐项计分。
 
-
-\section{仅行情输入预测案例}
-
-以下案例来自仅行情输入评测输出。该实验使用同一目标日期、股票代码和真实标签，但 Prompt 中不包含新闻和研报摘要。
-
-\begin{quote}\small
-目标日期：2026-01-05
-
-股票代码：000001
-
-参考标签：涨，涨，跌
-
-预测标签：涨，涨，跌
-
-模型输出摘要：模型主要根据第 5 日收盘价反弹、成交量放大和振幅增加判断短期市场情绪活跃，因此预测未来 1 日和 3 日上涨；同时认为反弹后可能出现波动或回调，给出未来 7 日下跌判断。
-
-最终输出：涨，涨，跌
-\end{quote}
-
-与多源信息案例相比，仅行情输入模型的依据主要来自价格和量能变化，缺少外部事件和资金叙事的交叉验证。因此，在部分样本中，即使最终标签一致，两类模型给出的解释信息也存在明显差异。
 
 \section{提取失败样本说明}
 

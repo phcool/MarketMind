@@ -39,11 +39,11 @@
 
 输出**单个** UTF-8 CSV，列 **`prompt`, `label`**：`label` 为「涨」或「跌」——若 Day8 当日 `pct_change >= 0` 为「涨」，否则为「跌」。Prompt 要求模型**只输出**「涨」或「跌」。
 
-默认输出：`train/dataset/quotes_7d_pre2026_dataset.csv`。
+默认输出：`dataset/quotes_7d_pre2026_dataset.csv`。
 
 ```bash
 python scripts/dataset/build_quotes_7d_dataset.py
-python scripts/dataset/build_quotes_7d_dataset.py -o train/dataset/my_train.csv
+python scripts/dataset/build_quotes_7d_dataset.py -o dataset/my_train.csv
 python scripts/dataset/build_quotes_7d_dataset.py --date-start 2021-01-01 --train-before 2026-01-01
 ```
 
@@ -53,7 +53,7 @@ python scripts/dataset/build_quotes_7d_dataset.py --date-start 2021-01-01 --trai
 
 将数据集中的 **`prompt` + `label`** 封装为新 user 消息：展示原 K 线任务、**给出标准答案（涨/跌）**，要求模型在 **【思维链开始】…【思维链结束】** 之间写推理，最后**单独一行**输出与标准答案一致的「涨」或「跌」。生成符合 [`docs/Qwen_Batch_Call.md`](docs/Qwen_Batch_Call.md) 的 JSONL。依赖 **`openai`** SDK；环境变量 **`DASHBOARD_API_KEY` 或 `DASHSCOPE_API_KEY`**（与 `DASHSCOPE_BASE_URL`，默认北京兼容端点；会读取项目根目录 `.env`）。
 
-**命令（两步）**：① **无参数**：从默认 `train/dataset/quotes_7d_pre2026_dataset.csv` 生成 `batch/cot_qwen_batch_input.jsonl`，上传 Batch 任务并写入 `batch/cot_qwen_batch_state.json`（不阻塞等待）。② **`--check-status`**：**只查一次**远端状态；若尚未结束则打印当前状态后退出，若已完成则下载 `batch/cot_qwen_batch_result.jsonl` 并合并为 **`train/dataset/quotes_7d_cot_from_batch.csv`**（列 `prompt`：思维链版任务说明；`completion`：模型全文）。试跑子集可设环境变量 **`BATCH_COT_LIMIT`** / **`BATCH_COT_OFFSET`**（仅第一步有效）。
+**命令（两步）**：① **无参数**：从默认 `dataset/quotes_7d_pre2026_dataset.csv` 生成 `batch/cot_qwen_batch_input.jsonl`，上传 Batch 任务并写入 `batch/cot_qwen_batch_state.json`（不阻塞等待）。② **`--check-status`**：**只查一次**远端状态；若尚未结束则打印当前状态后退出，若已完成则下载 `batch/cot_qwen_batch_result.jsonl` 并合并为 **`dataset/quotes_7d_cot_from_batch.csv`**（列 `prompt`：思维链版任务说明；`completion`：模型全文）。试跑子集可设环境变量 **`BATCH_COT_LIMIT`** / **`BATCH_COT_OFFSET`**（仅第一步有效）。
 
 ```bash
 pip install openai
@@ -67,9 +67,9 @@ python scripts/batch/batch_qwen_cot_quotes_dataset.py --check-status
 
 使用 **Hugging Face TRL** 的 **GRPO** + **Accelerate + DeepSpeed ZeRO-3**，默认 **8 卡**（`CUDA_VISIBLE_DEVICES` 可改）。**Rollout 默认启用 vLLM**（`vllm_mode=colocate`，与训练同机共享 GPU；依赖 `trl[vllm]`）。入口：`train/scripts/grpo/train_grpo_qwen.py`；启动：`train/scripts/launch/run_grpo_8gpu.sh`；DeepSpeed：`train/configs/deepspeed/zero3.json`；Accelerate：`train/configs/accelerate/deepspeed_zero3.yaml`。架构与 reward 细节见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) **§10**。
 
-**数据**：`train_grpo_qwen.py` 当前示例仍按 **`prompt` + `pct_change`（回归）** 设计；若改用上述「涨/跌」数据集，需自行调整数据列与 reward（例如分类准确率）。
+**数据**：`train_grpo_qwen.py` 当前使用 **7 日 K 线多周期方向数据**，默认训练集为 `dataset/quotes_7d_multi_pre2026_dataset.csv`，默认验证集为 `dataset/quotes_7d_multi_eval_20260101_20260228.csv`。CSV 推荐列为 **`prompt` + `future_1_3_7_trade_day_labels`**，标签格式如 `涨，跌，涨`；也兼容 `prompt` + `completion`，只要 `completion` 中能解析出未来 1/3/7 日最终方向。
 
-**Reward（回归示例）**：补全**最后一行**解析浮点数（去 `%`），`reward = exp(-|pred - label| / 100)`；解析失败 **0**。
+**Reward（多周期方向）**：从 completion 中解析三行最终结论 `未来1个交易日：涨/跌`、`未来3个交易日：涨/跌`、`未来7个交易日：涨/跌`，逐项与真实标签比较，reward 为三项正确率平均值；解析失败记 **0**。训练日志会额外记录解析成功率、三项全中率以及 1/3/7 日分别命中率。
 
 ```bash
 uv sync --extra train

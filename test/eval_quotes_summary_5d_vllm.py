@@ -14,14 +14,15 @@ from vllm.lora.request import LoRARequest
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = ROOT_DIR / "dataset" / "quotes_summary_5d_2026-01-01_to_2026-04-01.csv"
-DEFAULT_OUTPUT_JSON = ROOT_DIR / "test" / "outputs" / "quotes_summary_5d_vllm_eval.json"
+DEFAULT_OUTPUT_JSON_WITH_TEXT = ROOT_DIR / "test" / "outputs" / "quotes_summary_5d_vllm_eval.json"
+DEFAULT_OUTPUT_JSON_NO_TEXT = ROOT_DIR / "test" / "outputs" / "quotes_summary_5d_vllm_no_text_eval.json"
 DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_ADAPTER_PATH = "/nfs/hanpeng/huggingface/models/qwen2_5_sft_cot_lora"
 
 TRIPLE_LABEL_RE = re.compile(r"^\s*([涨跌])\s*[，,/\s]\s*([涨跌])\s*[，,/\s]\s*([涨跌])\s*$")
 EXTRACTION_FAILED = "提取失败"
 
-HEADER = """下面是一条股票日度样本，请根据该股票在目标日期当天可见的信息，预测下一个交易日相对当天是涨还是跌。
+HEADER_WITH_TEXT = """下面是一条股票日度样本，请根据该股票在目标日期当天可见的信息，预测下一个交易日相对当天是涨还是跌。
 
 你会看到：
 1. 该股票在目标日期及之前连续5个交易日的归一化K线；
@@ -30,7 +31,30 @@ HEADER = """下面是一条股票日度样本，请根据该股票在目标日�
 
 其中，open 表示开盘价，high 表示最高价，low 表示最低价，close 表示收盘价，volume 表示成交量，amplitude 表示振幅，pct_change 表示涨跌幅，turnover 表示换手率。"""
 
-TAIL = """请综合K线形态、量能变化、news摘要和report摘要，分别预测该股票相对当前交易日收盘价在以下三个阶段的涨跌：
+HEADER_NO_TEXT = """下面是一条股票日度样本，请根据该股票在目标日期当天可见的信息，预测下一个交易日相对当天是涨还是跌。
+
+你会看到：
+1. 该股票在目标日期及之前连续5个交易日的归一化K线。
+
+其中，open 表示开盘价，high 表示最高价，low 表示最低价，close 表示收盘价，volume 表示成交量，amplitude 表示振幅，pct_change 表示涨跌幅，turnover 表示换手率。"""
+
+TAIL_WITH_TEXT = """请综合K线形态、量能变化、news摘要和report摘要，分别预测该股票相对当前交易日收盘价在以下三个阶段的涨跌：
+1. 1个交易日后
+2. 3个交易日后
+3. 7个交易日后
+
+【输出要求（必须严格遵守）】
+请先分析，再将推理过程写在下面一对标记之间（只写推理过程）：
+【思维链开始】
+（在此撰写推理过程）
+【思维链结束】
+
+思维链结束后，请单独一行按顺序输出三个阶段的答案，格式必须严格为：
+涨，涨，跌
+
+三个位置分别对应：1个交易日后、3个交易日后、7个交易日后。只输出这一行，不要输出其他文字。"""
+
+TAIL_NO_TEXT = """请综合K线形态、量能变化与短期走势，分别预测该股票相对当前交易日收盘价在以下三个阶段的涨跌：
 1. 1个交易日后
 2. 3个交易日后
 3. 7个交易日后
@@ -47,10 +71,12 @@ TAIL = """请综合K线形态、量能变化、news摘要和report摘要，分�
 三个位置分别对应：1个交易日后、3个交易日后、7个交易日后。只输出这一行，不要输出其他文字。"""
 
 
-def _load_rows(dataset_path: Path) -> list[dict[str, str]]:
+def _load_rows(dataset_path: Path, *, include_text: bool) -> list[dict[str, str]]:
     with dataset_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
-        expected = {"date", "stock", "kline_5d", "news", "reports", "future_1_3_7_trade_day_labels"}
+        expected = {"date", "stock", "kline_5d", "future_1_3_7_trade_day_labels"}
+        if include_text:
+            expected.update({"news", "reports"})
         actual = set(reader.fieldnames or [])
         missing = expected - actual
         if missing:
@@ -92,12 +118,10 @@ def _format_summary_items(items: list[dict], *, label: str) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(row: dict[str, str]) -> str:
+def build_prompt(row: dict[str, str], *, include_text: bool) -> str:
     kline_rows = json.loads(row["kline_5d"])
-    news_items = json.loads(row["news"])
-    report_items = json.loads(row["reports"])
     parts = [
-        HEADER,
+        HEADER_WITH_TEXT if include_text else HEADER_NO_TEXT,
         "",
         f"目标日期：{row['date']}",
         f"股票代码：{row['stock']}",
@@ -105,12 +129,21 @@ def build_prompt(row: dict[str, str]) -> str:
         "过去5个交易日的归一化K线：",
         _format_kline_block(kline_rows),
         "",
-        _format_summary_items(news_items, label="截止该日最近的news摘要"),
-        "",
-        _format_summary_items(report_items, label="截止该日最近的report摘要"),
-        "",
-        TAIL,
     ]
+    if include_text:
+        news_items = json.loads(row["news"])
+        report_items = json.loads(row["reports"])
+        parts.extend(
+            [
+                _format_summary_items(news_items, label="截止该日最近的news摘要"),
+                "",
+                _format_summary_items(report_items, label="截止该日最近的report摘要"),
+                "",
+                TAIL_WITH_TEXT,
+            ]
+        )
+    else:
+        parts.append(TAIL_NO_TEXT)
     return "\n".join(parts)
 
 
@@ -146,10 +179,10 @@ def extract_predicted_label(text: str) -> str:
     return EXTRACTION_FAILED
 
 
-def _build_templated_prompts(tokenizer, rows: list[dict[str, str]]) -> list[str]:
+def _build_templated_prompts(tokenizer, rows: list[dict[str, str]], *, include_text: bool) -> list[str]:
     prompts = []
     for row in rows:
-        messages = [{"role": "user", "content": build_prompt(row)}]
+        messages = [{"role": "user", "content": build_prompt(row, include_text=include_text)}]
         prompt = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -189,9 +222,15 @@ def _compute_accuracy(results: list[dict[str, object]], *, include_failed: bool)
 def build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate Qwen2.5-7B-Instruct with vLLM on quotes+summary dataset.")
     parser.add_argument("--base_model", type=str, default=DEFAULT_BASE_MODEL)
+    parser.add_argument("--model", dest="base_model", type=str, help="Alias of --base_model.")
     parser.add_argument("--adapter_path", type=str, default=DEFAULT_ADAPTER_PATH)
     parser.add_argument("--dataset", type=str, default=str(DEFAULT_DATASET))
-    parser.add_argument("--output_json", type=str, default=str(DEFAULT_OUTPUT_JSON))
+    parser.add_argument(
+        "--output_json",
+        type=str,
+        default="",
+        help="Output JSON path. Defaults to a mode-specific file under test/outputs.",
+    )
     parser.add_argument("--num_samples", type=int, default=0, help="Number of random samples to evaluate. 0 means use all rows.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max_new_tokens", type=int, default=4096)
@@ -203,21 +242,26 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.9)
     parser.add_argument("--max_model_len", type=int, default=32768)
     parser.add_argument("--max_lora_rank", type=int, default=64)
+    parser.add_argument("--no_text", action="store_true", help="Evaluate with K-line only, excluding news/report text.")
+    parser.add_argument("--disable_lora", action="store_true", help="Run the base model without loading the LoRA adapter.")
     return parser
 
 
 def main() -> None:
     args = build_argparser().parse_args()
+    include_text = not args.no_text
+    use_lora = not args.disable_lora
 
     dataset_path = Path(args.dataset).expanduser().resolve()
-    output_json = Path(args.output_json).expanduser().resolve()
+    default_output_json = DEFAULT_OUTPUT_JSON_WITH_TEXT if include_text else DEFAULT_OUTPUT_JSON_NO_TEXT
+    output_json = Path(args.output_json or default_output_json).expanduser().resolve()
     adapter_path = Path(args.adapter_path).expanduser().resolve()
     output_json.parent.mkdir(parents=True, exist_ok=True)
 
-    rows = _load_rows(dataset_path)
+    rows = _load_rows(dataset_path, include_text=include_text)
     if not rows:
         raise SystemExit(f"No rows found in dataset: {dataset_path}")
-    if not (adapter_path / "adapter_model.safetensors").is_file():
+    if use_lora and not (adapter_path / "adapter_model.safetensors").is_file():
         raise SystemExit(f"LoRA adapter not found or incomplete: {adapter_path}")
 
     if args.use_all or args.num_samples <= 0:
@@ -227,8 +271,9 @@ def main() -> None:
         rng = random.Random(args.seed)
         sampled_rows = rng.sample(rows, num_samples)
 
-    tokenizer = AutoTokenizer.from_pretrained(str(adapter_path), use_fast=True, trust_remote_code=True)
-    prompts = _build_templated_prompts(tokenizer, sampled_rows)
+    tokenizer_path = str(adapter_path) if use_lora else args.base_model
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=True, trust_remote_code=True)
+    prompts = _build_templated_prompts(tokenizer, sampled_rows, include_text=include_text)
 
     config = AutoConfig.from_pretrained(args.base_model, trust_remote_code=True)
     num_attention_heads = int(getattr(config, "num_attention_heads", 0) or 0)
@@ -249,7 +294,7 @@ def main() -> None:
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
         trust_remote_code=True,
-        enable_lora=True,
+        enable_lora=use_lora,
         max_lora_rank=args.max_lora_rank,
     )
     sampling_params = SamplingParams(
@@ -258,16 +303,16 @@ def main() -> None:
         max_tokens=args.max_new_tokens,
     )
 
-    print(f"[eval] Generating with {args.base_model} + LoRA {adapter_path} on {len(prompts)} prompts ...")
-    outputs = llm.generate(
-        prompts,
-        sampling_params,
-        lora_request=LoRARequest("sft_adapter", 1, str(adapter_path)),
-        use_tqdm=True,
-    )
+    text_mode = "with_text" if include_text else "no_text"
+    lora_mode = f" + LoRA {adapter_path}" if use_lora else ""
+    print(f"[eval] Generating with {args.base_model}{lora_mode} on {len(prompts)} prompts ({text_mode}) ...")
+    generate_kwargs = {"use_tqdm": True}
+    if use_lora:
+        generate_kwargs["lora_request"] = LoRARequest("sft_adapter", 1, str(adapter_path))
+    outputs = llm.generate(prompts, sampling_params, **generate_kwargs)
 
     results: list[dict[str, object]] = []
-    for row, prompt, output in zip(sampled_rows, prompts, outputs):
+    for row, output in zip(sampled_rows, outputs):
         text = output.outputs[0].text
         pred = extract_predicted_label(text)
         results.append(
@@ -277,7 +322,7 @@ def main() -> None:
                 "reference_label": row["future_1_3_7_trade_day_labels"],
                 "predicted_label": pred,
                 "raw_output": text,
-                "prompt": build_prompt(row),
+                "prompt": build_prompt(row, include_text=include_text),
             }
         )
 
@@ -286,7 +331,10 @@ def main() -> None:
 
     payload = {
         "base_model": args.base_model,
-        "adapter_path": str(adapter_path),
+        "adapter_path": str(adapter_path) if use_lora else None,
+        "mode": text_mode,
+        "include_text": include_text,
+        "use_lora": use_lora,
         "dataset": str(dataset_path),
         "num_samples": len(results),
         "accuracy_including_extraction_failures": {

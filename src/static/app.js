@@ -11,7 +11,7 @@ let currentData = null;
 
 function predictionSummaryLine(data) {
   if (!data) {
-    return '<p class="meta">点击 Predict，基于最近 7 个交易日 K 线和已生成的 news / reports / SerpAPI Summary，先分析再预测未来 1 日、3 日、7 日走向。最终结论每一项只会输出“上涨”或“下跌”。</p>';
+    return '<p class="meta">点击 Predict，基于最近 7 个交易日 K 线和已生成的 news / reports / SerpAPI Summary，综合利好/利多、利空、分歧与不确定性，生成未来趋势预测。</p>';
   }
   return `<p class="content">${escapeHtml(data)}</p>`;
 }
@@ -346,7 +346,7 @@ async function fetchPrediction() {
   if (!currentData) {
     return;
   }
-  setPredictionBox("正在调用 Qwen3.6-max-preview 先分析再生成未来 1 日、3 日、7 日涨跌判断...", { loading: true });
+  setPredictionBox("正在调用 Qwen3.6-max-preview 综合生成未来趋势预测...", { loading: true });
   try {
     const resp = await fetch("/api/predict", {
       method: "POST",

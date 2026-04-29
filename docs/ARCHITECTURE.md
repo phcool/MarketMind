@@ -14,7 +14,7 @@
 | **News** | 当日新闻标题与正文 |
 | **Report** | 卖方/机构研报 |
 
-在分别得到三类**结构化总结**后，再调用大模型做**未来股价走向**的综合判断。行情侧预测任务已从「对精确涨跌幅做 GRPO 回归」调整为「**涨跌二分类**」监督（见 §10），因回归式 RL 在本数据上难以稳定训练。
+在分别得到三类**结构化总结**后，再调用大模型做**未来股价走向**的综合判断。行情侧预测任务已从「对精确涨跌幅做 GRPO 回归」调整为「**涨跌方向分类**」：SFT 主线使用下一交易日二分类样本，GRPO 主线使用未来 **1/3/7 个交易日**的多周期方向标签（见 §10），避免直接优化高噪声的连续涨跌幅。
 
 ---
 
@@ -89,10 +89,10 @@
 - **数据**：保留 `(输入快照, 模型输出, 后续真实走势标签或人工评分)`，形成训练或对齐用的样本。
 - **方法（概念选型）**：
   - **监督微调 / 分类**：当前行情预测以 **涨/跌** 标签为主（见 §9、`build_quotes_7d_dataset.py`），目标更稳定、可评估。
-  - **基于人类反馈的微调（RLHF/DPO 等）**：可用于总结类任务的可读性与校准；**不推荐**在「精确预测涨跌幅数值」上继续用 GRPO 式稀疏奖励（原因见 §10）。
+  - **奖励优化 / GRPO**：当前可执行实现使用纯 7 日 K 线多周期方向样本（`build_quotes_7d_multi_dataset.py`），以未来 1/3/7 日方向逐项平均正确率作为 reward；**不推荐**继续在「精确预测涨跌幅数值」上做 GRPO（原因见 §10）。
   - 若使用与预测误差相关的奖励，需注意过拟合与分布外风险。
 
-实施顺序建议：先跑通**可复现的批处理管线 + 统一 schema**，再小规模收集反馈或标签；**行情数值回归 + GRPO** 已在实验中弃用（§10）。
+实施顺序建议：先跑通**可复现的批处理管线 + 统一 schema**，再小规模收集反馈或标签；**行情数值回归 + GRPO** 已在实验中弃用，当前保留的是**多周期方向 GRPO**（§10）。
 
 ---
 
@@ -147,8 +147,8 @@ flowchart LR
 | Comments 流式总结 | 待实现：可基于现有实时抓取结果增加 LLM 总结接口 |
 | News 标题总结 + Top ids | 待实现：可拆为批处理脚本或在线接口 |
 | News 正文二阶段、Report 近 2 篇、统一预测 | 待实现：可拆为独立脚本或服务，并复用统一 prompt 与 schema |
-| Quotes → 涨跌分类数据集 | `scripts/dataset/build_quotes_7d_dataset.py` → `train/dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
-| （历史）Quotes → GRPO 涨跌幅回归 | 仓库仍保留 `train/scripts/grpo/train_grpo_qwen.py` 等，**不作为当前推荐路径**；见 §10 |
+| Quotes → 涨跌分类数据集 | `scripts/dataset/build_quotes_7d_dataset.py` → `dataset/quotes_7d_pre2026_dataset.csv`（`prompt` + `label` 涨/跌）；见 §9 |
+| Quotes → 多周期方向 GRPO | `scripts/dataset/build_quotes_7d_multi_dataset.py` → `dataset/quotes_7d_multi_pre2026_dataset.csv`；`train/scripts/grpo/train_grpo_qwen.py` 使用未来 1/3/7 日平均方向 reward；见 §10 |
 
 ---
 
@@ -159,7 +159,7 @@ flowchart LR
 - **`prompt`**：中文说明 + 连续 7 个交易日（Day1…Day7）的归一化 K 线描述 + 任务尾段，要求模型**只输出**下一交易日（Day8）的 **「涨」或「跌」**。
 - **`label`**：Day8 当日真实方向——`pct_change >= 0` 为 **「涨」**，否则为 **「跌」**；缺 `pct_change` 的样本丢弃。
 
-从 `exports/quotes.csv` 读取 **`trade_date < train_before`**（默认 `2026-01-01`），以保证标签窗口起点（默认 `2021-01-01`）之前的 **7 个交易日** 可作特征。**仅输出**标签日满足 **`date_start <= trade_date < train_before`** 的样本（默认 **2021-01-01 ≤ Day8 < 2026-01-01**）。不再划分验证集。默认输出：`train/dataset/quotes_7d_pre2026_dataset.csv`（可用 `-o` 指定）。
+从 `exports/quotes.csv` 读取 **`trade_date < train_before`**（默认 `2026-01-01`），以保证标签窗口起点（默认 `2021-01-01`）之前的 **7 个交易日** 可作特征。**仅输出**标签日满足 **`date_start <= trade_date < train_before`** 的样本（默认 **2021-01-01 ≤ Day8 < 2026-01-01**）。不再划分验证集。默认输出：`dataset/quotes_7d_pre2026_dataset.csv`（可用 `-o` 指定）。
 
 ### 9.1 数据筛选与滑动窗口
 
@@ -202,11 +202,11 @@ flowchart LR
 
 为评估 SFT 后模型在同任务上的泛化效果，另外构建了一个 **eval 集**：
 
-- **文件**：`train/dataset/quotes_7d_eval_20260101_20260228.csv`
+- **文件**：`dataset/quotes_7d_eval_20260101_20260228.csv`
 - **标签日窗口**：**2026-01-01 ≤ Day8 < 2026-03-01**
 - **样本数**：**1330**
 - **列结构**：`prompt`, `completion`
-- **`prompt`**：与 `train/dataset/quotes_7d_cot_from_batch.csv` 保持一致，包含 7 日归一化 K 线、思维链占位符和“最后单独输出涨/跌”的要求
+- **`prompt`**：与 `dataset/quotes_7d_cot_from_batch.csv` 保持一致，包含 7 日归一化 K 线、思维链占位符和“最后单独输出涨/跌”的要求
 - **`completion`**：仅保留真实最终结果，即 **「涨」** 或 **「跌」**
 
 评测脚本：`train/scripts/sft/eval_sft_vllm_compare.py`
@@ -226,9 +226,9 @@ flowchart LR
 
 ---
 
-## 10. 训练策略：为何不再采用「涨跌幅数值 + GRPO」
+## 10. 训练策略：从涨跌幅回归转向多周期方向 GRPO
 
-### 10.1 现象与结论
+### 10.1 旧版数值回归 GRPO 的现象与结论
 
 此前在 **同一类 7 日 K 线 prompt** 上，用 **GRPO** 对模型生成的 **下一日涨跌幅数值** 与标签 `pct_change` 做 **`exp(-|pred-label|/100)`** 式奖励时，训练曲线出现典型**失效形态**，见 **`docs/reward_loss_vs_step.png`**（训练曲线，来自完整 `output.log`）：
 
@@ -239,33 +239,53 @@ flowchart LR
 
 - **涨跌幅度（连续数值）**在噪声极大的日频行情上是一个**极难收敛的目标**；组内多条 completion 的 reward 往往接近，模型容易**退化为总是输出相近或固定的数值**。
 - 一旦同组内各条输出的 reward **几乎相同**，**组内相对优势（Advantage）** 趋近于 **0**；策略梯度项消失，**有效 loss 为 0**，优化器**不再产生有意义的参数更新**，表现为「训练停滞」。
-- 因此，**不再将「精确预测涨跌幅」作为当前主线的 RL 目标**；改为 §9 的 **涨/跌二分类** 标签，便于监督学习或分类损失，目标更明确、可评估。
+- 因此，**不再将「精确预测涨跌幅」作为当前主线的 RL 目标**；当前训练目标改为离散的 **涨/跌方向分类**，并在 GRPO 阶段扩展为未来 **1/3/7 个交易日**的多周期方向联合判断，目标更明确、可评估。
 
-### 10.3 历史 GRPO 实现（仓库仍保留，仅供参考）
+### 10.3 当前多周期方向 GRPO 实现
 
-以下描述 **旧版** `train/scripts/grpo/train_grpo_qwen.py` 等脚本的设计，**与当前推荐的 `prompt` + `label` 数据集不一致**；若需复现实验，需自行改数据列与 reward。
+当前仓库中的 `train/scripts/grpo/train_grpo_qwen.py` 已同步为**多周期方向 GRPO**。它不再读取 `pct_change` 回归标签，而是读取 `prompt` 与 `future_1_3_7_trade_day_labels`，或兼容读取能解析出三项最终方向的 `completion`。
 
-在旧版 **两列 `prompt`, `pct_change`** 的 CSV 上，对 **Qwen2.5-7B-Instruct** 做 **GRPO**（TRL `GRPOTrainer`），配合 **Accelerate + DeepSpeed ZeRO-3** 与 **vLLM rollout**。
+默认数据集：
+
+- 训练：`dataset/quotes_7d_multi_pre2026_dataset.csv`
+- 验证：`dataset/quotes_7d_multi_eval_20260101_20260228.csv`
+
+数据由 `scripts/dataset/build_quotes_7d_multi_dataset.py` 构造。每条样本以过去 7 个交易日的归一化 K 线作为输入，标签比较 Day7 收盘价与未来第 1、3、7 个交易日收盘价，形成如 `涨，跌，涨` 的三项方向组合。
 
 | 路径 | 作用 |
 |------|------|
-| `train/scripts/grpo/train_grpo_qwen.py` | 读 `prompt` / `pct_change`，套 Qwen chat template，构造 `GRPOTrainer` |
-| `train/scripts/launch/run_grpo_8gpu.sh` | 仓库根目录执行 `accelerate launch`（默认 8 进程） |
+| `scripts/dataset/build_quotes_7d_multi_dataset.py` | 构造 7 日 K 线 → 未来 1/3/7 日方向数据，输出 `prompt` + `future_1_3_7_trade_day_labels` |
+| `train/scripts/grpo/train_grpo_qwen.py` | 读多周期方向 CSV，套 Qwen chat template，构造 `GRPOTrainer` 与方向 reward |
+| `train/scripts/launch/run_grpo_8gpu.sh` | 仓库根目录执行 `accelerate launch`（默认 8 进程），参数原样透传给训练脚本 |
 | `train/configs/accelerate/deepspeed_zero3.yaml` | `distributed_type: DEEPSPEED`，`num_processes: 8`，引用 `train/configs/deepspeed/zero3.json` |
 | `train/configs/deepspeed/zero3.json` | ZeRO-3、`bf16` 等 |
-| `train/requirements.txt` | 含 `trl[vllm]` |
+| `pyproject.toml` | `train` optional dependency 中包含 `accelerate`、`deepspeed`、`trl`、`vllm` 等训练依赖 |
 
-**旧 reward（与实现对齐）**：从 completion 最后一行解析浮点预测，与 `pct_change` 算 `diff = |pred - label|`，`reward = exp(-(diff/100))`；解析失败则 reward = 0。
+**当前 reward（与实现对齐）**：从 completion 中解析最终三项方向。优先匹配如下格式：
+
+```text
+未来1个交易日：涨/跌
+未来3个交易日：涨/跌
+未来7个交易日：涨/跌
+```
+
+若三项都能解析，则 reward 为逐项平均正确率：
+
+```text
+reward = (hit_1d + hit_3d + hit_7d) / 3
+```
+
+解析失败则 reward = 0。训练日志额外记录 `direction_parse_success_rate`、`direction_full_match_rate`、`direction_1d_match_rate`、`direction_3d_match_rate` 与 `direction_7d_match_rate`。
 
 **vLLM 模式**：`colocate`（与训练同机）或 `server`（独立服务）；详见脚本与 TRL 文档。
 
 ```mermaid
 flowchart LR
-  CSV[quotes_7d 旧版 CSV] --> DS[Dataset prompt + pct_change]
+  CSV[quotes_7d_multi CSV] --> DS[Dataset prompt + 1/3/7 labels]
   DS --> T[GRPOTrainer]
   M[Qwen2.5-7B] --> T
   T --> V[vLLM rollout]
-  V --> R[pct_change_exp_reward]
+  V --> R[direction_accuracy_reward]
   R --> T
   DS3[DeepSpeed ZeRO-3] --> M
 ```
