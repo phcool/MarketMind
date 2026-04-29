@@ -28,7 +28,9 @@ import re
 from pathlib import Path
 
 from datasets import load_dataset
-from transformers import AutoTokenizer
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -326,6 +328,12 @@ def make_direction_triplet_reward():
 def build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="GRPO train Qwen2.5-7B on multi-source 5d summary prompts.")
     p.add_argument("--model_name_or_path", default="Qwen/Qwen2.5-7B-Instruct")
+    p.add_argument(
+        "--sft_lora_path",
+        type=str,
+        default="",
+        help="Optional existing SFT LoRA adapter path to continue training with GRPO.",
+    )
     p.add_argument("--train_file", type=str, default=str(DEFAULT_TRAIN_CSV))
     p.add_argument("--eval_file", type=str, default=str(DEFAULT_VAL_CSV))
     p.add_argument("--max_eval_samples", type=int, default=-1)
@@ -428,6 +436,8 @@ def main() -> None:
     else:
         report_to_val = parts
 
+    sft_lora_path = args.sft_lora_path.strip()
+
     training_kwargs: dict = dict(
         output_dir=args.output_dir,
         learning_rate=args.learning_rate,
@@ -439,6 +449,7 @@ def main() -> None:
         save_total_limit=args.save_total_limit,
         bf16=True,
         gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         remove_unused_columns=False,
         beta=args.beta,
         max_completion_length=args.max_completion_length,
@@ -489,9 +500,27 @@ def main() -> None:
 
     training_args = GRPOConfig(**training_kwargs)
 
+    model = args.model_name_or_path
+    if sft_lora_path:
+        lora_path = Path(sft_lora_path).expanduser()
+        if not lora_path.is_dir():
+            raise SystemExit(f"--sft_lora_path is not a directory: {sft_lora_path!r}")
+        _LOG.info("Loading base model for trainable SFT LoRA: %s", args.model_name_or_path)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            args.model_name_or_path,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+        )
+        _LOG.info("Loading trainable SFT LoRA adapter: %s", lora_path)
+        model = PeftModel.from_pretrained(base_model, str(lora_path), is_trainable=True)
+        # TRL's colocated vLLM backend initializes from model.name_or_path; keep it
+        # pointed at the base model, then TRL syncs merged PEFT weights into vLLM.
+        model.name_or_path = args.model_name_or_path
+        model.print_trainable_parameters()
+
     trainer_cls = GRPOTrainer
     trainer_kwargs: dict = dict(
-        model=args.model_name_or_path,
+        model=model,
         args=training_args,
         reward_funcs=make_direction_triplet_reward(),
         train_dataset=train_ds,

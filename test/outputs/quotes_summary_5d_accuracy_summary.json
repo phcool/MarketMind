@@ -1,0 +1,100 @@
+{
+  "base_no_lora_with_text": {
+    "source_file": "test/outputs/quotes_summary_5d_base_no_lora_with_text_eval.json",
+    "mode": "with_text",
+    "use_lora": false,
+    "num_samples": 1691,
+    "accuracy_including_extraction_failures": {
+      "correct": 836.3333333333344,
+      "total": 1691,
+      "accuracy": 0.4945791444904402
+    },
+    "accuracy_excluding_extraction_failures": {
+      "correct": 836.3333333333344,
+      "total": 1686,
+      "accuracy": 0.49604586793198957
+    }
+  },
+  "base_no_lora_no_text": {
+    "source_file": "test/outputs/quotes_summary_5d_base_no_lora_no_text_eval.json",
+    "mode": "no_text",
+    "use_lora": false,
+    "num_samples": 1691,
+    "accuracy_including_extraction_failures": {
+      "correct": 846.6666666666683,
+      "total": 1691,
+      "accuracy": 0.5006899270648542
+    },
+    "accuracy_excluding_extraction_failures": {
+      "correct": 846.6666666666683,
+      "total": 1680,
+      "accuracy": 0.503968253968255
+    }
+  },
+  "lora_with_text": {
+    "source_file": "test/outputs/quotes_summary_5d_lora_with_text_eval.json",
+    "mode": "with_text",
+    "use_lora": true,
+    "num_samples": 1691,
+    "accuracy_including_extraction_failures": {
+      "correct": 936.3333333333346,
+      "total": 1691,
+      "accuracy": 0.5537157500492813
+    },
+    "accuracy_excluding_extraction_failures": {
+      "correct": 936.3333333333346,
+      "total": 1691,
+      "accuracy": 0.5537157500492813
+    }
+  },
+  "lora_no_text": {
+    "source_file": "test/outputs/quotes_summary_5d_lora_no_text_eval.json",
+    "mode": "no_text",
+    "use_lora": true,
+    "num_samples": 1691,
+    "accuracy_including_extraction_failures": {
+      "correct": 933.6666666666679,
+      "total": 1691,
+      "accuracy": 0.5521387739010455
+    },
+    "accuracy_excluding_extraction_failures": {
+      "correct": 933.6666666666679,
+      "total": 1691,
+      "accuracy": 0.5521387739010455
+    }
+  },
+  "grpo_ckpt500_lora_with_text": {
+    "source_file": "test/outputs/quotes_summary_5d_grpo_ckpt500_lora_with_text_eval.json",
+    "mode": "with_text",
+    "use_lora": true,
+    "adapter_path": "/nfs/hanpeng/huggingface/models/qwen2_5_sft_lora_grpo_quotes_summary_multi/checkpoint-500",
+    "num_samples": 1691,
+    "accuracy_including_extraction_failures": {
+      "correct": 938.6666666666682,
+      "total": 1691,
+      "accuracy": 0.5550956041789877
+    },
+    "accuracy_excluding_extraction_failures": {
+      "correct": 938.6666666666682,
+      "total": 1691,
+      "accuracy": 0.5550956041789877
+    }
+  },
+  "grpo_ckpt500_lora_no_text": {
+    "source_file": "test/outputs/quotes_summary_5d_grpo_ckpt500_lora_no_text_eval.json",
+    "mode": "no_text",
+    "use_lora": true,
+    "adapter_path": "/nfs/hanpeng/huggingface/models/qwen2_5_sft_lora_grpo_quotes_summary_multi/checkpoint-500",
+    "num_samples": 1691,
+    "accuracy_including_extraction_failures": {
+      "correct": 917.0000000000022,
+      "total": 1691,
+      "accuracy": 0.5422826729745726
+    },
+    "accuracy_excluding_extraction_failures": {
+      "correct": 917.0000000000022,
+      "total": 1691,
+      "accuracy": 0.5422826729745726
+    }
+  }
+}
